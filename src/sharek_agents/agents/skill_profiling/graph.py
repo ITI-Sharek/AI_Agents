@@ -6,9 +6,17 @@ from langchain.chat_models import init_chat_model
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import ValidationError
 
+try:
+    from langchain_groq import ChatGroq
+except ImportError:
+    ChatGroq = None
+
 from sharek_agents.agents.skill_profiling.prompts import SYSTEM_PROMPT
 from sharek_agents.agents.skill_profiling.schemas import AgentResponse, SkillProfilingResult
 from sharek_agents.agents.skill_profiling.tools import gather_all_evidence
+
+DEFAULT_PROVIDER = "groq"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 
 try:
@@ -37,14 +45,17 @@ except ImportError:
 @lru_cache(maxsize=1)
 def get_llm():
     return init_chat_model(
-        os.environ.get("LLM_MODEL", "gpt-4o-mini"),
-        model_provider=os.environ.get("LLM_PROVIDER", "openai"),
+        os.environ.get("LLM_MODEL", DEFAULT_MODEL),
+        model_provider=os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER),
     )
 
 
 async def _invoke_llm(
     prompt: ChatPromptTemplate, structured: object, evidence_json: str
 ) -> SkillProfilingResult:
+    if os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER).lower() == "groq":
+        return await _invoke_groq_json(evidence_json)
+
     try:
         return await (prompt | structured).ainvoke({"evidence": evidence_json})
     except (ValidationError, ValueError, TypeError):
@@ -58,6 +69,44 @@ async def _invoke_llm(
         return await (retry_prompt | structured).ainvoke({"evidence": evidence_json})
 
 
+async def _invoke_groq_json(evidence_json: str) -> SkillProfilingResult:
+    if ChatGroq is None:
+        raise RuntimeError("langchain-groq is not installed")
+
+    llm = ChatGroq(
+        model=os.environ.get("LLM_MODEL", DEFAULT_MODEL),
+        temperature=0,
+        timeout=float(os.environ.get("LLM_TIMEOUT_SECONDS", "45")),
+        max_retries=1,
+    )
+    messages = [
+        ("system", SYSTEM_PROMPT),
+        (
+            "human",
+            "Return ONLY valid JSON matching this schema: "
+            "{\"skills\":[{\"name\": string, \"evidence_type\": \"github_stats|static_analysis|graphify_relations\", \"description\": string, \"supporting_evidence\": [string], \"evidence_ids\": [exact evidence_id strings]}], \"overall_level\": string, \"summary\": string}. "
+            "Do not wrap in markdown. Evidence:\n\n" + evidence_json,
+        ),
+    ]
+    response = await llm.ainvoke(messages)
+    content = response.content if isinstance(response.content, str) else str(response.content)
+    payload = _extract_json_object(content)
+    return SkillProfilingResult.model_validate(payload)
+
+
+def _extract_json_object(content: str) -> dict:
+    cleaned = content.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:].strip()
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("Groq response did not contain a JSON object")
+    return json.loads(cleaned[start : end + 1])
+
+
 async def run(username: str, evidence: dict | None = None) -> AgentResponse:
     if evidence is None:
         evidence = await gather_all_evidence(username)
@@ -68,9 +117,12 @@ async def run(username: str, evidence: dict | None = None) -> AgentResponse:
         ("human", "Profile the following developer based on this evidence:\n\n{evidence}"),
     ])
 
-    structured = get_llm().with_structured_output(SkillProfilingResult)
-
     try:
+        structured = (
+            None
+            if os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER).lower() == "groq"
+            else get_llm().with_structured_output(SkillProfilingResult)
+        )
         result = await _invoke_llm(prompt, structured, evidence_json)
         return AgentResponse(status="success", data=result)
     except (OpenAIAuthError, AnthropicAuthError):

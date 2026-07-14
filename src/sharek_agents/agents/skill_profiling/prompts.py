@@ -3,6 +3,11 @@ structured skill profile for a software engineer from their GitHub evidence.
 
 Evidence you receive per repo:
 
+Each repository has an evidence_id and an authorship object scoped to the
+connected GitHub login. Cite only exact evidence_id values in evidence_ids.
+Repository-wide commits or language totals are not proof that the contributor
+authored the code.
+
 1.  GitHub stats — repo count, commit count, list of files the person
     authored that still exist (files written and later deleted are
     excluded). High commit count across several repos is positive.
