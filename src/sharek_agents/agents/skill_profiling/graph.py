@@ -3,6 +3,11 @@ import json
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import ValidationError
 
+try:
+    from langchain_groq import ChatGroq
+except ImportError:
+    ChatGroq = None
+
 from sharek_agents.agents.skill_profiling.prompts import SYSTEM_PROMPT
 from sharek_agents.agents.skill_profiling.schemas import AgentResponse, ErrorInfo, SkillProfilingResult
 from sharek_agents.common.llm import get_llm
@@ -11,6 +16,9 @@ from sharek_agents.common.llm import get_llm
 async def _invoke_llm(
     prompt: ChatPromptTemplate, structured: object, evidence_json: str
 ) -> SkillProfilingResult:
+    if os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER).lower() == "groq":
+        return await _invoke_groq_json(evidence_json)
+
     try:
         return await (prompt | structured).ainvoke({"evidence": evidence_json})
     except (ValidationError, ValueError, TypeError):
@@ -41,9 +49,12 @@ async def run(repo_identifier: str, evidence: dict | None = None) -> AgentRespon
         ("human", "Profile the repositories based on this evidence:\n\n{evidence}"),
     ])
 
-    structured = get_llm().with_structured_output(SkillProfilingResult)
-
     try:
+        structured = (
+            None
+            if os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER).lower() == "groq"
+            else get_llm().with_structured_output(SkillProfilingResult)
+        )
         result = await _invoke_llm(prompt, structured, evidence_json)
         return AgentResponse(
             status="success",

@@ -1,8 +1,12 @@
+import os
+
 from sharek_agents.agents.skill_profiling.graph import run as run_graph
 from sharek_agents.agents.skill_profiling.schemas import (
     AgentResponse,
     ErrorInfo,
     Skill,
+    SkillProfileGenerationRequest,
+    SkillProfileGenerationResponse,
     SkillProfilingResult,
     Source,
 )
