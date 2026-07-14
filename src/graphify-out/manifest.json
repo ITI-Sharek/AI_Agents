@@ -1,0 +1,302 @@
+{
+  "package.json": {
+    "mtime": 1784026744.1684487,
+    "ast_hash": "0e818784a286073faf38b0e334845ddb",
+    "semantic_hash": ""
+  },
+  ".vscode/extensions.json": {
+    "mtime": 1784026744.1674488,
+    "ast_hash": "d3b118b41884c371c18cbd55e392eb07",
+    "semantic_hash": ""
+  },
+  ".vscode/launch.json": {
+    "mtime": 1784026744.1684487,
+    "ast_hash": "c6799d2f7ae6f5d7a740d1023654bb8d",
+    "semantic_hash": ""
+  },
+  ".vscode/mcp.json": {
+    "mtime": 1784026744.1684487,
+    "ast_hash": "f379347bd44231ed133462aa2ae502aa",
+    "semantic_hash": ""
+  },
+  ".vscode/tasks.json": {
+    "mtime": 1784026744.1684487,
+    "ast_hash": "903821282d5c5b46a4673a263eeb9dee",
+    "semantic_hash": ""
+  },
+  "angular.json": {
+    "mtime": 1784026744.1684487,
+    "ast_hash": "1978e5d6a98a21454e83aed31271d955",
+    "semantic_hash": ""
+  },
+  "src/app/app.config.server.ts": {
+    "mtime": 1784026744.1707246,
+    "ast_hash": "4a74da4e40e3b8d991114b5f807b96c3",
+    "semantic_hash": ""
+  },
+  "src/app/app.config.ts": {
+    "mtime": 1784026744.1707501,
+    "ast_hash": "b5734d5292b271f8504b50c33a6474e8",
+    "semantic_hash": ""
+  },
+  "src/app/app.routes.server.ts": {
+    "mtime": 1784026744.1707501,
+    "ast_hash": "8fcdaf6e67229219fb19599b93fb4d69",
+    "semantic_hash": ""
+  },
+  "src/app/app.routes.ts": {
+    "mtime": 1784026744.1707501,
+    "ast_hash": "91c32f410732e79c0244b20f3630d17b",
+    "semantic_hash": ""
+  },
+  "src/app/app.spec.ts": {
+    "mtime": 1784026744.1707501,
+    "ast_hash": "0496eaeda25159a047929fe31eac1a6b",
+    "semantic_hash": ""
+  },
+  "src/app/app.ts": {
+    "mtime": 1784026744.1707501,
+    "ast_hash": "d04c015e83ce36ece3abb251dd2df349",
+    "semantic_hash": ""
+  },
+  "src/app/components/about-us/about-us.spec.ts": {
+    "mtime": 1784026744.170864,
+    "ast_hash": "b6651eebda69ffa3dba379ed5b6a929b",
+    "semantic_hash": ""
+  },
+  "src/app/components/about-us/about-us.ts": {
+    "mtime": 1784026744.170864,
+    "ast_hash": "4eac0a1a0faa28aa106acc8ae4e22bd6",
+    "semantic_hash": ""
+  },
+  "src/app/components/app-layout/app-layout.spec.ts": {
+    "mtime": 1784026744.1709294,
+    "ast_hash": "4f4b87648d9d0d7e65da715e90ee5bfd",
+    "semantic_hash": ""
+  },
+  "src/app/components/app-layout/app-layout.ts": {
+    "mtime": 1784026744.1709294,
+    "ast_hash": "e9d6cfeabd20f8da52d71f775473ba8b",
+    "semantic_hash": ""
+  },
+  "src/app/components/contact/contact.spec.ts": {
+    "mtime": 1784026744.1709816,
+    "ast_hash": "fc57bf3b09ccbf26225767f885c58121",
+    "semantic_hash": ""
+  },
+  "src/app/components/contact/contact.ts": {
+    "mtime": 1784026744.1709816,
+    "ast_hash": "faba4fc55d80d24be45bbad9c5cc2da2",
+    "semantic_hash": ""
+  },
+  "src/app/components/course-details/course-details.spec.ts": {
+    "mtime": 1784026744.1710427,
+    "ast_hash": "c968ccc7f8c4afee28bd50d865ab74c4",
+    "semantic_hash": ""
+  },
+  "src/app/components/course-details/course-details.ts": {
+    "mtime": 1784026744.1710427,
+    "ast_hash": "6394e29a15e0d899c2bd6002c5e31e88",
+    "semantic_hash": ""
+  },
+  "src/app/components/courses/courses.spec.ts": {
+    "mtime": 1784026744.1711142,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/app/components/courses/courses.ts": {
+    "mtime": 1784026744.1711142,
+    "ast_hash": "936a917dff701004299a7b114cc55b46",
+    "semantic_hash": ""
+  },
+  "src/app/components/footer/footer.spec.ts": {
+    "mtime": 1784026744.1711862,
+    "ast_hash": "eabf8c9797799505f58c4e4559cb9b3a",
+    "semantic_hash": ""
+  },
+  "src/app/components/footer/footer.ts": {
+    "mtime": 1784026744.1711862,
+    "ast_hash": "619b4a7dfcb40b97027e16788907e3c0",
+    "semantic_hash": ""
+  },
+  "src/app/components/header/header.spec.ts": {
+    "mtime": 1784026744.171251,
+    "ast_hash": "1f74353958be8707e36bf9a931900edb",
+    "semantic_hash": ""
+  },
+  "src/app/components/header/header.ts": {
+    "mtime": 1784026744.171251,
+    "ast_hash": "c81debce5cb1cd95e3f6e242f106f268",
+    "semantic_hash": ""
+  },
+  "src/app/components/home/home.spec.ts": {
+    "mtime": 1784026744.17131,
+    "ast_hash": "dbed8e6d7f6379be049437f9808b2f61",
+    "semantic_hash": ""
+  },
+  "src/app/components/home/home.ts": {
+    "mtime": 1784026744.17131,
+    "ast_hash": "33a1d664ea4fdd49622ce0c628340d31",
+    "semantic_hash": ""
+  },
+  "src/app/components/not-found/not-found.spec.ts": {
+    "mtime": 1784026744.1713684,
+    "ast_hash": "756b8f603e374d7d959717131ab4977e",
+    "semantic_hash": ""
+  },
+  "src/app/components/not-found/not-found.ts": {
+    "mtime": 1784026744.1713684,
+    "ast_hash": "ceabe436d7be28a02004a736951e9edb",
+    "semantic_hash": ""
+  },
+  "src/app/directives/direct1.spec.ts": {
+    "mtime": 1784026744.1713684,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/app/directives/direct1.ts": {
+    "mtime": 1784026744.1714222,
+    "ast_hash": "a89b8a20dff48628caa4053fcb046d85",
+    "semantic_hash": ""
+  },
+  "src/app/models/category.ts": {
+    "mtime": 1784026744.1714222,
+    "ast_hash": "68ce33f9b4be50bc7257bd374bb6c155",
+    "semantic_hash": ""
+  },
+  "src/app/models/course.ts": {
+    "mtime": 1784026744.171449,
+    "ast_hash": "a22c55c7a153b4fbbf325b0a1b54298b",
+    "semantic_hash": ""
+  },
+  "src/app/models/student.ts": {
+    "mtime": 1784026744.171449,
+    "ast_hash": "addd4d94164ad37be85c9f2a1e740204",
+    "semantic_hash": ""
+  },
+  "src/app/pips/discount.spec.ts": {
+    "mtime": 1784026744.171449,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/app/pips/discount.ts": {
+    "mtime": 1784026744.1715274,
+    "ast_hash": "b2d30a28adedc09d41aff49230956392",
+    "semantic_hash": ""
+  },
+  "src/app/services/categories-serv.spec.ts": {
+    "mtime": 1784026744.1715274,
+    "ast_hash": "835d2580688af62d648cac0a82e5aa27",
+    "semantic_hash": ""
+  },
+  "src/app/services/categories-serv.ts": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "6ec445eb576417a064fbe87b1ff8fbb7",
+    "semantic_hash": ""
+  },
+  "src/app/services/courses-serv.spec.ts": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "a4734eb65f6c50316abc8e5d5d20ec89",
+    "semantic_hash": ""
+  },
+  "src/app/services/courses-serv.ts": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "ebff183806e8373b94a86acf61b88032",
+    "semantic_hash": ""
+  },
+  "src/environment/environment.ts": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "9ccc72fba3c06622dd7096412d44264c",
+    "semantic_hash": ""
+  },
+  "src/main.server.ts": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "2ac1a26fcfbb08168bdad50fbb7e79bc",
+    "semantic_hash": ""
+  },
+  "src/main.ts": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "ac0b277dca1867b341af9e2d25224ae9",
+    "semantic_hash": ""
+  },
+  "src/server.ts": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "0538b0e03c3417ef2680938c96b75500",
+    "semantic_hash": ""
+  },
+  "tsconfig.app.json": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "3287f5c54cda0f27f444b3e74f987531",
+    "semantic_hash": ""
+  },
+  "tsconfig.json": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "d4886a8a9be1c35a2d17ab5e0f4439c2",
+    "semantic_hash": ""
+  },
+  "tsconfig.spec.json": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "9261a8f9db3b2c991df0e6f9d51828b1",
+    "semantic_hash": ""
+  },
+  "src/app/app.html": {
+    "mtime": 1784026744.1707501,
+    "ast_hash": "f7f5b7e83dbdfdeea92849080d0af1a0",
+    "semantic_hash": ""
+  },
+  "src/app/components/about-us/about-us.html": {
+    "mtime": 1784026744.170864,
+    "ast_hash": "31767ded638a5caef631a0274fcbeab4",
+    "semantic_hash": ""
+  },
+  "src/app/components/app-layout/app-layout.html": {
+    "mtime": 1784026744.1709294,
+    "ast_hash": "6b68baf5dab47517347709b121ca82cb",
+    "semantic_hash": ""
+  },
+  "src/app/components/contact/contact.html": {
+    "mtime": 1784026744.1709816,
+    "ast_hash": "f355270986f99739f031747e740ff112",
+    "semantic_hash": ""
+  },
+  "src/app/components/course-details/course-details.html": {
+    "mtime": 1784026744.1710427,
+    "ast_hash": "28e93873a27cb20ab2b321e1d524f10b",
+    "semantic_hash": ""
+  },
+  "src/app/components/courses/courses.html": {
+    "mtime": 1784026744.1711142,
+    "ast_hash": "09777b4d3ad9ff00c5149aeb1e11836a",
+    "semantic_hash": ""
+  },
+  "src/app/components/footer/footer.html": {
+    "mtime": 1784026744.1711862,
+    "ast_hash": "a13a063184d82dff5042e92ff07512b5",
+    "semantic_hash": ""
+  },
+  "src/app/components/header/header.html": {
+    "mtime": 1784026744.171251,
+    "ast_hash": "d0cdba3445ef143a2862e7d20a5caab0",
+    "semantic_hash": ""
+  },
+  "src/app/components/home/home.html": {
+    "mtime": 1784026744.17131,
+    "ast_hash": "b3f994c12facfe2f7455783afbf919d2",
+    "semantic_hash": ""
+  },
+  "src/app/components/not-found/not-found.html": {
+    "mtime": 1784026744.1713684,
+    "ast_hash": "9f7c995889a1842107a901445c74fae7",
+    "semantic_hash": ""
+  },
+  "src/index.html": {
+    "mtime": 1784026744.1715715,
+    "ast_hash": "926cd3afe95bf345a3f4c661ed4e9d24",
+    "semantic_hash": ""
+  },
+  "public/images/profile.jpg": {
+    "mtime": 1784026744.1702664,
+    "ast_hash": "d46314be9caf36eef2faf66bf58b04cd",
+    "semantic_hash": ""
+  }
+}

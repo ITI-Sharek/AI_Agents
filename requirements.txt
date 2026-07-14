@@ -4,5 +4,6 @@ uvicorn
 PyGithub
 langchain
 langchain-community
+langchain-openrouter
 langgraph
 python-dotenv

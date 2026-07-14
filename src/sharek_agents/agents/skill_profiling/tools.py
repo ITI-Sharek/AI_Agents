@@ -3,8 +3,10 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from sharek_agents.common.logging import get_logger
 from sharek_agents.shared_tools.github_client import GithubClient
@@ -25,6 +27,14 @@ KNOWN_FRAMEWORKS: dict[str, list[str]] = {
     "csharp": ["aspnetcore", "entity-framework", "dapper", "serilog"],
 }
 
+_EXT_LANG: dict[str, str] = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".jsx": "javascript",
+    ".tsx": "typescript",
+}
+
 _client: GithubClient | None = None
 
 
@@ -35,34 +45,54 @@ async def _get_client() -> GithubClient:
     return _client
 
 
-async def get_active_repos(username: str, max_repos: int = 10) -> list[dict]:
-    client = await _get_client()
-    return await client.get_user_repos(username, max_repos)
+_ANALYSIS_TIMEOUT = 30
 
 
-async def get_commits_by_author(
-    owner: str, repo: str, username: str, max_commits: int = 30
-) -> list[dict]:
+def parse_github_url(url: str) -> tuple[str, str] | None:
+    parsed = urlparse(url)
+    if "github.com" in parsed.netloc:
+        path = parsed.path.strip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        parts = path.split("/")
+        if len(parts) >= 2:
+            return parts[0], parts[1]
+    match = re.match(r"git@github\.com:([^/]+)/(.+)\.git", url)
+    if match:
+        return match.group(1), match.group(2)
+    match = re.match(r"github\.com[:/]([^/]+)/(.+)", url)
+    if match:
+        repo = match.group(2)
+        if repo.endswith(".git"):
+            repo = repo[:-4]
+        return match.group(1), repo
+    return None
+
+
+async def get_repo_metadata(owner: str, repo: str) -> dict | None:
     client = await _get_client()
-    commits = await client.get_commits(
-        owner, repo, author=username, per_page=max_commits
-    )
+    return await client.get_repo(owner, repo)
+
+
+async def get_commits(owner: str, repo: str, username: str, max_commits: int = 30) -> list[dict]:
+    client = await _get_client()
+    data = await client.get_commits(owner, repo, author=username, per_page=max_commits)
     return [
         {
             "sha": c["sha"],
-            "date": c["commit"]["author"]["date"],
+            "date": c["commit"]["committer"]["date"],
             "message": c["commit"]["message"],
         }
-        for c in commits
+        for c in data
     ]
 
 
 async def get_changed_files(owner: str, repo: str, commit_sha: str) -> list[str]:
     client = await _get_client()
-    commit = await client.get_commit(owner, repo, commit_sha)
-    if commit is None:
+    data = await client.get_commit(owner, repo, commit_sha)
+    if data is None:
         return []
-    return [f["filename"] for f in commit.get("files", [])]
+    return [f["filename"] for f in data.get("files", [])]
 
 
 async def get_dependency_files(owner: str, repo: str) -> dict[str, str]:
@@ -95,9 +125,7 @@ async def get_dependency_files(owner: str, repo: str) -> dict[str, str]:
     return result
 
 
-async def get_current_file_tree(
-    owner: str, repo: str, default_branch: str
-) -> set[str]:
+async def get_current_file_tree(owner: str, repo: str, default_branch: str) -> set[str]:
     client = await _get_client()
     tree = await client.get_tree(owner, repo, default_branch, recursive=True)
     if tree is None:
@@ -109,13 +137,8 @@ async def get_current_file_tree(
     }
 
 
-def filter_to_current_files(
-    changed_files: list[str], current_tree: set[str]
-) -> list[str]:
-    return [f for f in changed_files if f in current_tree]
-
-
-_ANALYSIS_TIMEOUT = 30
+def filter_source_files(all_files: set[str]) -> list[str]:
+    return [f for f in all_files if os.path.splitext(f)[1].lower() in _EXT_LANG]
 
 
 @dataclass
@@ -151,9 +174,7 @@ async def _run_tool(command: str, args: list[str], timeout: int | None = None) -
     )
 
 
-async def _run_python_analysis(
-    abspaths: list[str], relpaths: list[str]
-) -> dict:
+async def _run_python_analysis(abspaths: list[str], relpaths: list[str]) -> dict:
     cc_result = await _run_tool("radon", ["cc"] + abspaths + ["-s", "-j"])
     if cc_result is None:
         return {"error": "timeout", "supported": True}
@@ -166,9 +187,7 @@ async def _run_python_analysis(
     if mi_result.returncode == -1:
         return {"error": "tool_not_found", "supported": True}
 
-    pylint_result = await _run_tool(
-        "pylint", abspaths + ["--output-format=json"]
-    )
+    pylint_result = await _run_tool("pylint", abspaths + ["--output-format=json"])
     if pylint_result is None:
         return {"error": "timeout", "supported": True}
     if pylint_result.returncode == -1:
@@ -224,9 +243,7 @@ async def _run_python_analysis(
     }
 
 
-async def _run_js_analysis(
-    abspaths: list[str], relpaths: list[str]
-) -> dict:
+async def _run_js_analysis(abspaths: list[str], relpaths: list[str]) -> dict:
     result = await _run_tool("eslint", abspaths + ["--format", "json"])
     if result is None:
         return {"error": "timeout", "supported": True}
@@ -267,7 +284,7 @@ async def run_static_analysis(
         return {
             "supported": True,
             "skipped": True,
-            "reason": "no_current_files",
+            "reason": "no_source_files",
         }
 
     abspaths = [os.path.join(local_repo_path, fp) for fp in file_paths]
@@ -303,7 +320,7 @@ async def run_graphify(repo_url: str, max_size_mb: int = 250) -> dict:
         if total_bytes > max_size_mb * 1024 * 1024:
             return {"skipped": True, "reason": "repo_too_large"}
 
-        graphify_result = await _run_tool("graphify", ["update", tmp_dir], timeout=60)
+        graphify_result = await _run_tool(sys.executable, ["-m", "graphify", "update", tmp_dir], timeout=60)
         if graphify_result is None:
             return {"skipped": True, "reason": "graphify_timeout"}
         if graphify_result.returncode == -1:
@@ -370,15 +387,6 @@ def prune_graph_for_llm(graph_json: dict, relevant_files: list[str]) -> dict:
     return result
 
 
-_EXT_LANG: dict[str, str] = {
-    ".py": "python",
-    ".js": "javascript",
-    ".ts": "typescript",
-    ".jsx": "javascript",
-    ".tsx": "typescript",
-}
-
-
 def _detect_language(file_paths: list[str]) -> str | None:
     for fp in file_paths:
         lang = _EXT_LANG.get(os.path.splitext(fp)[1].lower())
@@ -387,52 +395,53 @@ def _detect_language(file_paths: list[str]) -> str | None:
     return None
 
 
-async def gather_all_evidence(username: str) -> dict:
-    repos = await get_active_repos(username)
+async def gather_all_evidence(repo_urls: list[str], github_username: str) -> dict:
+    repos_data: list[dict] = []
+    unresolved_repos: list[dict] = []
+
+    valid: list[tuple[str, str, str]] = []
+    for url in repo_urls:
+        parsed = parse_github_url(url)
+        if not parsed:
+            unresolved_repos.append({"url": url, "reason": "invalid_url"})
+        else:
+            owner, repo_name = parsed
+            valid.append((owner, repo_name, url))
 
     results = await asyncio.gather(
-        *[_process_single_repo(r, username) for r in repos]
+        *(_process_single_repo(owner, repo, github_username, url, unresolved_repos)
+          for owner, repo, url in valid),
+        return_exceptions=True,
     )
 
+    for r in results:
+        if isinstance(r, Exception):
+            continue
+        if r is not None:
+            repos_data.append(r)
+
     return {
-        "username": username,
-        "repo_count": len(repos),
-        "repos": [r for r in results if r is not None],
+        "repo_count": len(repos_data),
+        "repos": repos_data,
+        "unresolved_repos": unresolved_repos,
     }
 
 
-async def _process_single_repo(repo: dict, username: str) -> dict | None:
-    repo_name = repo.get("name", "unknown")
+async def _process_single_repo(owner: str, repo_name: str, github_username: str, original_url: str, unresolved_repos: list[dict]) -> dict | None:
     logger = get_logger(f"{__name__}._process_single_repo")
     try:
-        owner = repo["owner"]["login"]
-        default_branch = repo.get("default_branch", "main")
-
-        try:
-            commits = await get_commits_by_author(owner, repo_name, username)
-        except Exception:
-            commits = []
-
-        if not commits:
+        meta = await get_repo_metadata(owner, repo_name)
+        if meta is None:
+            unresolved_repos.append({"url": original_url, "reason": "repo_not_found_or_private"})
             return None
 
-        raw_changed_files: list[str] = []
-        for c in commits:
-            try:
-                raw_changed_files.extend(
-                    await get_changed_files(owner, repo_name, c["sha"])
-                )
-            except Exception:
-                pass
+        default_branch = meta.get("default_branch", "main")
+        clone_url = meta.get("clone_url", f"https://github.com/{owner}/{repo_name}.git")
 
         try:
             current_tree = await get_current_file_tree(owner, repo_name, default_branch)
         except Exception:
             current_tree = set()
-
-        relevant_files = list(dict.fromkeys(
-            filter_to_current_files(raw_changed_files, current_tree)
-        ))
 
         async def _deps():
             try:
@@ -441,13 +450,36 @@ async def _process_single_repo(repo: dict, username: str) -> dict | None:
             except Exception:
                 return {}
 
+        async def _commits():
+            try:
+                commits = await get_commits(owner, repo_name, github_username)
+                commit_file_lists = await asyncio.gather(
+                    *(get_changed_files(owner, repo_name, c["sha"]) for c in commits)
+                )
+                seen: set[str] = set()
+                result: list[str] = []
+                for flist in commit_file_lists:
+                    for f in flist:
+                        if f not in seen:
+                            seen.add(f)
+                            result.append(f)
+                return result
+            except Exception:
+                return []
+
+        frameworks, commit_derived_files = await asyncio.gather(
+            _deps(), _commits()
+        )
+
+        relevant_files = [f for f in commit_derived_files if f in current_tree]
+
         async def _static():
             try:
                 if not relevant_files:
                     return {
                         "supported": True,
                         "skipped": True,
-                        "reason": "no_current_files",
+                        "reason": "no_source_files",
                     }
 
                 lang = _detect_language(relevant_files)
@@ -462,7 +494,7 @@ async def _process_single_repo(repo: dict, username: str) -> dict | None:
                 try:
                     clone_result = await _run_tool(
                         "git",
-                        ["clone", "--depth=1", repo["clone_url"], tmp_clone],
+                        ["clone", "--depth=1", clone_url, tmp_clone],
                         timeout=60,
                     )
                     if clone_result is None:
@@ -488,25 +520,34 @@ async def _process_single_repo(repo: dict, username: str) -> dict | None:
 
         async def _graph():
             try:
-                raw = await run_graphify(repo["clone_url"])
+                raw = await run_graphify(clone_url)
                 return prune_graph_for_llm(raw, relevant_files)
             except Exception:
                 return {"files_analyzed": [], "inherits": [], "calls": []}
 
-        frameworks, static_analysis, graph_relations = await asyncio.gather(
-            _deps(), _static(), _graph()
+        static_analysis, graph_relations = await asyncio.gather(
+            _static(), _graph()
         )
 
         return {
             "name": repo_name,
+            "owner": owner,
+            "description": meta.get("description") or "",
+            "language": meta.get("language") or "",
+            "topics": meta.get("topics", []),
+            "stars": meta.get("stargazers_count", 0),
+            "forks": meta.get("forks_count", 0),
+            "default_branch": default_branch,
+            "clone_url": clone_url,
             "frameworks": frameworks,
             "static_analysis": static_analysis,
             "graph_relations": graph_relations,
-            "commit_count": len(commits),
+            "commit_derived_files": commit_derived_files,
             "files_evaluated": relevant_files,
+            "file_count": len(relevant_files),
         }
     except Exception:
-        logger.exception("unhandled error processing repo %s", repo_name)
+        logger.exception("unhandled error processing repo %s/%s", owner, repo_name)
         return None
 
 
