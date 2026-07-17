@@ -19,7 +19,7 @@ class GithubClient:
 
     async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict | list | None:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers=self._headers, params=params)
+            resp = await client.get(url, headers=self._headers, params=params, follow_redirects=True)
             if resp.status_code in (403, 404):
                 return None
             resp.raise_for_status()

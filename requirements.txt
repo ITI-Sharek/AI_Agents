@@ -7,3 +7,5 @@ langchain-community
 langchain-openrouter
 langgraph
 python-dotenv
+radon 
+pylint

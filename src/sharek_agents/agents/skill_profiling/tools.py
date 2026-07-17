@@ -8,24 +8,12 @@ import tempfile
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from sharek_agents.agents.skill_profiling.detection import (
+    detect_frameworks as _detect_frameworks,
+)
 from sharek_agents.common.logging import get_logger
 from sharek_agents.shared_tools.github_client import GithubClient
 
-
-FRAMEWORK_SIGNATURES: dict[str, str] = {
-    "requirements.txt": "python",
-    "pyproject.toml": "python",
-    "package.json": "javascript",
-    "pom.xml": "java",
-    "*.csproj": "csharp",
-}
-
-KNOWN_FRAMEWORKS: dict[str, list[str]] = {
-    "python": ["fastapi", "django", "flask"],
-    "javascript": ["react", "vue", "@angular/core", "express", "@nestjs/core", "next"],
-    "java": ["spring", "spring-boot", "jakarta", "javax"],
-    "csharp": ["aspnetcore", "entity-framework", "dapper", "serilog"],
-}
 
 _EXT_LANG: dict[str, str] = {
     ".py": "python",
@@ -102,14 +90,37 @@ async def get_dependency_files(owner: str, repo: str) -> dict[str, str]:
     candidates = [
         "requirements.txt",
         "pyproject.toml",
+        "Pipfile",
+        "poetry.lock",
         "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "composer.json",
+        "composer.lock",
         "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "go.mod",
+        "Cargo.toml",
+        "Gemfile",
+        "Gemfile.lock",
+        "pubspec.yaml",
+        "Package.swift",
+        "Podfile",
+        "Cartfile",
+        "packages.config",
+        "Directory.Packages.props",
     ]
-    for path in candidates:
-        content = await client.get_content(owner, repo, path)
-        if content is not None:
+    contents = await asyncio.gather(
+        *(client.get_content(owner, repo, path) for path in candidates),
+        return_exceptions=True,
+    )
+    for path, content in zip(candidates, contents):
+        if isinstance(content, str):
             result[path] = content
 
+    csproj_files: list[str] = []
     repo_info = await client.get_repo(owner, repo)
     if repo_info is not None:
         default_branch = repo_info.get("default_branch", "main")
@@ -117,10 +128,17 @@ async def get_dependency_files(owner: str, repo: str) -> dict[str, str]:
         if tree is not None:
             for item in tree.get("tree", []):
                 filename = item.get("path", "")
-                if filename.endswith(".csproj") and "/" not in filename:
-                    content = await client.get_content(owner, repo, filename)
-                    if content is not None:
-                        result[filename] = content
+                if filename.endswith(".csproj"):
+                    csproj_files.append(filename)
+
+    if csproj_files:
+        csproj_contents = await asyncio.gather(
+            *(client.get_content(owner, repo, f) for f in csproj_files[:5]),
+            return_exceptions=True,
+        )
+        for f, content in zip(csproj_files[:5], csproj_contents):
+            if isinstance(content, str):
+                result[f] = content
 
     return result
 
@@ -551,33 +569,5 @@ async def _process_single_repo(owner: str, repo_name: str, github_username: str,
         return None
 
 
-def _signature_match(filename: str, pattern: str) -> bool:
-    if pattern.startswith("*."):
-        return filename.endswith(pattern[1:])
-    return filename == pattern
-
-
-def _tokenize(content: str) -> set[str]:
-    tokens = re.split(r'[=\s,;"\'<>.:~!|&\n\r\t()]+', content.lower())
-    return {t for t in tokens if t}
-
-
 def detect_frameworks(dependency_files: dict[str, str]) -> dict[str, list[str]]:
-    result: dict[str, list[str]] = {}
-    content_by_lang: dict[str, str] = {}
-    for filename, content in dependency_files.items():
-        content_lower = content.lower()
-        for pattern, lang in FRAMEWORK_SIGNATURES.items():
-            if _signature_match(filename, pattern):
-                content_by_lang.setdefault(lang, "")
-                content_by_lang[lang] += "\n" + content_lower
-                break
-    for lang, combined in content_by_lang.items():
-        tokens = _tokenize(combined)
-        found: list[str] = []
-        for framework in KNOWN_FRAMEWORKS.get(lang, []):
-            if framework.lower() in tokens:
-                found.append(framework)
-        if found:
-            result[lang] = found
-    return result
+    return _detect_frameworks(dependency_files)
