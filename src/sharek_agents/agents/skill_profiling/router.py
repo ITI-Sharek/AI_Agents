@@ -2,25 +2,25 @@ from sharek_agents.agents.skill_profiling.graph import run as run_graph
 from sharek_agents.agents.skill_profiling.schemas import (
     AgentResponse,
     ErrorInfo,
-    FrameworkSkill,
+    Skill,
     SkillProfilingResult,
     Source,
 )
 from sharek_agents.agents.skill_profiling.tools import gather_all_evidence
 
 
-def _validate_framework_skills(profiling: SkillProfilingResult) -> str | None:
-    names = [fs.name.lower() for fs in profiling.framework_skills]
+def _validate_skills(profiling: SkillProfilingResult) -> str | None:
+    names = [s.name.lower() for s in profiling.skills]
     if len(names) != len(set(names)):
-        return "framework_skills contains duplicate framework names (case-insensitive)"
+        return "skills contains duplicate skill names (case-insensitive)"
     return None
 
 
-def _apply_confidence_cap(framework_skills: list[FrameworkSkill]) -> list[FrameworkSkill]:
-    for fs in framework_skills:
-        if fs.evidence_type == "github_stats" and fs.confidence > 0.6:
-            fs.confidence = 0.6
-    return framework_skills
+def _apply_confidence_cap(skills: list[Skill]) -> list[Skill]:
+    for s in skills:
+        if s.evidence_type == "github_stats" and s.confidence > 0.6:
+            s.confidence = 0.6
+    return skills
 
 
 def _build_evidence_sources(evidence: dict) -> list[Source]:
@@ -55,10 +55,10 @@ def _build_evidence_sources(evidence: dict) -> list[Source]:
     return sources
 
 
-def _build_framework_sources(framework_skills: list[FrameworkSkill]) -> list[Source]:
+def _build_skill_sources(skills: list[Skill]) -> list[Source]:
     return [
-        Source(detail=fs.evidence)
-        for fs in framework_skills
+        Source(detail=s.evidence)
+        for s in skills
     ]
 
 
@@ -117,49 +117,28 @@ async def profile_repos(repo_urls: list[str], github_username: str) -> AgentResp
         )
 
     profiling = SkillProfilingResult(
-        clean_code=response.clean_code,
-        software_design_architecture=response.software_design_architecture,
-        code_quality_maintainability=response.code_quality_maintainability,
-        implementation=response.implementation,
-        testing_practices=response.testing_practices,
-        framework_skills=response.framework_skills or [],
+        skills=response.skills or [],
     )
 
-    fs_validation_error = _validate_framework_skills(profiling)
-    if fs_validation_error:
+    validation_error = _validate_skills(profiling)
+    if validation_error:
         return AgentResponse(
             status="failed",
             error=ErrorInfo(
                 code="invalid_profiling_output",
-                message=fs_validation_error,
+                message=validation_error,
                 retryable=False,
             ),
         )
 
-    _apply_confidence_cap(profiling.framework_skills)
+    _apply_confidence_cap(profiling.skills)
 
     all_sources = _build_evidence_sources(evidence)
-
-    for gs in [
-        profiling.clean_code,
-        profiling.software_design_architecture,
-        profiling.code_quality_maintainability,
-        profiling.implementation,
-        profiling.testing_practices,
-    ]:
-        for ev in gs.evidence:
-            all_sources.append(Source(detail=ev))
-
-    all_sources.extend(_build_framework_sources(profiling.framework_skills))
+    all_sources.extend(_build_skill_sources(profiling.skills))
 
     return AgentResponse(
         status="success",
-        clean_code=profiling.clean_code,
-        software_design_architecture=profiling.software_design_architecture,
-        code_quality_maintainability=profiling.code_quality_maintainability,
-        implementation=profiling.implementation,
-        testing_practices=profiling.testing_practices,
-        framework_skills=profiling.framework_skills,
+        skills=profiling.skills,
         confidence=1.0,
         sources=all_sources,
         unresolved_repos=unresolved_repos,

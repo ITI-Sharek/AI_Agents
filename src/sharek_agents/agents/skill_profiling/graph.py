@@ -47,12 +47,7 @@ async def run(repo_identifier: str, evidence: dict | None = None) -> AgentRespon
         result = await _invoke_llm(prompt, structured, evidence_json)
         return AgentResponse(
             status="success",
-            clean_code=result.clean_code,
-            software_design_architecture=result.software_design_architecture,
-            code_quality_maintainability=result.code_quality_maintainability,
-            implementation=result.implementation,
-            testing_practices=result.testing_practices,
-            framework_skills=result.framework_skills,
+            skills=result.skills,
         )
     except Exception:
         return AgentResponse(

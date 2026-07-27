@@ -1,11 +1,6 @@
 import asyncio
-import json
 import os
 import re
-import shutil
-import sys
-import tempfile
-from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from sharek_agents.agents.skill_profiling.detection import (
@@ -15,14 +10,6 @@ from sharek_agents.common.logging import get_logger
 from sharek_agents.shared_tools.github_client import GithubClient
 
 
-_EXT_LANG: dict[str, str] = {
-    ".py": "python",
-    ".js": "javascript",
-    ".ts": "typescript",
-    ".jsx": "javascript",
-    ".tsx": "typescript",
-}
-
 _client: GithubClient | None = None
 
 
@@ -31,9 +18,6 @@ async def _get_client() -> GithubClient:
     if _client is None:
         _client = GithubClient()
     return _client
-
-
-_ANALYSIS_TIMEOUT = 30
 
 
 def parse_github_url(url: str) -> tuple[str, str] | None:
@@ -155,264 +139,6 @@ async def get_current_file_tree(owner: str, repo: str, default_branch: str) -> s
     }
 
 
-def filter_source_files(all_files: set[str]) -> list[str]:
-    return [f for f in all_files if os.path.splitext(f)[1].lower() in _EXT_LANG]
-
-
-@dataclass
-class _ToolResult:
-    stdout: str
-    stderr: str
-    returncode: int
-
-
-async def _run_tool(command: str, args: list[str], timeout: int | None = None) -> _ToolResult | None:
-    timeout = timeout or _ANALYSIS_TIMEOUT
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            command,
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
-    except asyncio.TimeoutError:
-        if proc:
-            proc.kill()
-            await proc.wait()
-        return None
-    except FileNotFoundError:
-        return _ToolResult("", "tool_not_found", -1)
-    return _ToolResult(
-        stdout.decode("utf-8", errors="replace"),
-        stderr.decode("utf-8", errors="replace"),
-        proc.returncode,
-    )
-
-
-async def _run_python_analysis(abspaths: list[str], relpaths: list[str]) -> dict:
-    cc_result = await _run_tool("radon", ["cc"] + abspaths + ["-s", "-j"])
-    if cc_result is None:
-        return {"error": "timeout", "supported": True}
-    if cc_result.returncode == -1:
-        return {"error": "tool_not_found", "supported": True}
-
-    mi_result = await _run_tool("radon", ["mi"] + abspaths + ["-s", "-j"])
-    if mi_result is None:
-        return {"error": "timeout", "supported": True}
-    if mi_result.returncode == -1:
-        return {"error": "tool_not_found", "supported": True}
-
-    pylint_result = await _run_tool("pylint", abspaths + ["--output-format=json"])
-    if pylint_result is None:
-        return {"error": "timeout", "supported": True}
-    if pylint_result.returncode == -1:
-        return {"error": "tool_not_found", "supported": True}
-
-    complexities: list[float] = []
-    if cc_result.stdout:
-        try:
-            cc_data = json.loads(cc_result.stdout)
-            for file_data in cc_data.values():
-                for block in file_data:
-                    complexities.append(block["complexity"])
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-
-    mi_values: list[float] = []
-    if mi_result.stdout:
-        try:
-            mi_data = json.loads(mi_result.stdout)
-            for file_data in mi_data.values():
-                for block in file_data:
-                    mi_values.append(block["mi"])
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-
-    issues: list[str] = []
-    pylint_score = 0.0
-    if pylint_result.stdout:
-        try:
-            messages = json.loads(pylint_result.stdout)
-            for m in messages:
-                issues.append(
-                    f'{m.get("path", "")}:{m.get("line", 0)} {m.get("message", "")}'
-                )
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-
-    if pylint_result.stderr:
-        m = re.search(r"rated at (\d+\.\d+)/10", pylint_result.stderr)
-        if m:
-            pylint_score = float(m.group(1))
-
-    return {
-        "avg_complexity": round(sum(complexities) / len(complexities), 2)
-        if complexities
-        else 0.0,
-        "maintainability_index": round(sum(mi_values) / len(mi_values), 2)
-        if mi_values
-        else 0.0,
-        "pylint_score": pylint_score,
-        "top_issues": issues[:10],
-        "files_analyzed": relpaths,
-    }
-
-
-async def _run_js_analysis(abspaths: list[str], relpaths: list[str]) -> dict:
-    result = await _run_tool("eslint", abspaths + ["--format", "json"])
-    if result is None:
-        return {"error": "timeout", "supported": True}
-    if result.returncode == -1:
-        return {"error": "tool_not_found", "supported": True}
-
-    error_count = 0
-    warning_count = 0
-    issues: list[str] = []
-
-    if result.stdout:
-        try:
-            reports = json.loads(result.stdout)
-            for report in reports:
-                error_count += report.get("errorCount", 0)
-                warning_count += report.get("warningCount", 0)
-                for m in report.get("messages", []):
-                    issues.append(
-                        f'{report.get("filePath", "")}:{m.get("line", 0)} {m.get("message", "")}'
-                    )
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-
-    return {
-        "error_count": error_count,
-        "warning_count": warning_count,
-        "top_issues": issues[:10],
-        "files_analyzed": relpaths,
-    }
-
-
-async def run_static_analysis(
-    local_repo_path: str,
-    file_paths: list[str],
-    language: str,
-) -> dict:
-    if not file_paths:
-        return {
-            "supported": True,
-            "skipped": True,
-            "reason": "no_source_files",
-        }
-
-    abspaths = [os.path.join(local_repo_path, fp) for fp in file_paths]
-
-    if language == "python":
-        return await _run_python_analysis(abspaths, file_paths)
-    if language in ("javascript", "typescript"):
-        return await _run_js_analysis(abspaths, file_paths)
-    return {"supported": False}
-
-
-async def run_graphify(repo_url: str, max_size_mb: int = 250) -> dict:
-    tmp_dir = None
-    try:
-        tmp_dir = tempfile.mkdtemp()
-
-        result = await _run_tool("git", ["clone", "--depth=1", repo_url, tmp_dir], timeout=60)
-        if result is None:
-            return {"skipped": True, "reason": "clone_failed"}
-        if result.returncode == -1:
-            return {"error": "tool_not_found", "supported": True}
-        if result.returncode != 0:
-            return {"skipped": True, "reason": "clone_failed"}
-
-        total_bytes = 0
-        for dirpath, _, filenames in os.walk(tmp_dir):
-            for f in filenames:
-                try:
-                    total_bytes += os.path.getsize(os.path.join(dirpath, f))
-                except OSError:
-                    pass
-
-        if total_bytes > max_size_mb * 1024 * 1024:
-            return {"skipped": True, "reason": "repo_too_large"}
-
-        graphify_result = await _run_tool(sys.executable, ["-m", "graphify", "update", tmp_dir], timeout=60)
-        if graphify_result is None:
-            return {"skipped": True, "reason": "graphify_timeout"}
-        if graphify_result.returncode == -1:
-            return {"error": "tool_not_found", "supported": True}
-
-        graph_path = os.path.join(tmp_dir, "graphify-out", "graph.json")
-        if not os.path.isfile(graph_path):
-            return {"skipped": True, "reason": "graph_not_found"}
-
-        with open(graph_path, "r") as f:
-            return json.load(f)
-
-    except Exception as e:
-        return {"skipped": True, "reason": str(e)}
-    finally:
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-def prune_graph_for_llm(graph_json: dict, relevant_files: list[str]) -> dict:
-    if not relevant_files:
-        return {"files_analyzed": [], "inherits": [], "calls": []}
-
-    relevant_set = set(relevant_files)
-
-    node_ids = {
-        n["id"]
-        for n in graph_json.get("nodes", [])
-        if n.get("source_file", "") in relevant_set
-    }
-
-    inherits: list[dict] = []
-    calls: list[dict] = []
-    for link in graph_json.get("links", []):
-        if link.get("source") in node_ids and link.get("target") in node_ids:
-            entry = {"source": link["source"], "target": link["target"]}
-            rel = link.get("relation", "")
-            if rel == "inherits":
-                inherits.append(entry)
-            elif rel == "calls":
-                calls.append(entry)
-
-    result: dict = {
-        "files_analyzed": sorted(relevant_set),
-        "inherits": inherits,
-        "calls": calls,
-    }
-
-    while len(json.dumps(result)) / 4 > 2000 and (inherits or calls):
-        degree: dict[str, int] = {}
-        for e in inherits + calls:
-            degree[e["source"]] = degree.get(e["source"], 0) + 1
-            degree[e["target"]] = degree.get(e["target"], 0) + 1
-
-        def edge_key(e):
-            return degree.get(e["source"], 0) + degree.get(e["target"], 0)
-
-        pool = calls if calls else inherits
-        pool.sort(key=edge_key)
-        pool.pop(0)
-        result["inherits"] = inherits
-        result["calls"] = calls
-
-    return result
-
-
-def _detect_language(file_paths: list[str]) -> str | None:
-    for fp in file_paths:
-        lang = _EXT_LANG.get(os.path.splitext(fp)[1].lower())
-        if lang:
-            return lang
-    return None
-
-
 async def gather_all_evidence(repo_urls: list[str], github_username: str) -> dict:
     repos_data: list[dict] = []
     unresolved_repos: list[dict] = []
@@ -446,6 +172,14 @@ async def gather_all_evidence(repo_urls: list[str], github_username: str) -> dic
 
 
 async def _process_single_repo(owner: str, repo_name: str, github_username: str, original_url: str, unresolved_repos: list[dict]) -> dict | None:
+    # ── INVARIANT ────────────────────────────────────────────────────────
+    # Framework/library/ORM detection (detect_frameworks) is a fixed,
+    # GitHub-API-only step that always runs first and independently of
+    # repository cloning or analysis-service-based static/graph analysis. It must
+    # never be skipped, delayed, or made conditional on clone/analysis
+    # success. Do not move this logic into the analysis service or
+    # make it depend on a local clone in any future change.
+    # ──────────────────────────────────────────────────────────────────────
     logger = get_logger(f"{__name__}._process_single_repo")
     try:
         meta = await get_repo_metadata(owner, repo_name)
@@ -454,19 +188,24 @@ async def _process_single_repo(owner: str, repo_name: str, github_username: str,
             return None
 
         default_branch = meta.get("default_branch", "main")
-        clone_url = meta.get("clone_url", f"https://github.com/{owner}/{repo_name}.git")
 
         try:
             current_tree = await get_current_file_tree(owner, repo_name, default_branch)
         except Exception:
             current_tree = set()
 
-        async def _deps():
+        # STEP 1 — Framework/Library/ORM Detection
+        # Runs first, before any clone-based analysis. Uses GitHub REST API
+        # exclusively (get_dependency_files); no git clone, no analysis tools,
+        # no subprocesses. Pure string/token matching against registry.
+        async def _detect_frameworks_step():
             try:
                 dep_files = await get_dependency_files(owner, repo_name)
-                return detect_frameworks(dep_files)
+                return detect_frameworks(dep_files), list(dep_files.keys())
             except Exception:
-                return {}
+                return {}, []
+
+        frameworks, dep_file_names = await _detect_frameworks_step()
 
         async def _commits():
             try:
@@ -485,68 +224,15 @@ async def _process_single_repo(owner: str, repo_name: str, github_username: str,
             except Exception:
                 return []
 
-        frameworks, commit_derived_files = await asyncio.gather(
-            _deps(), _commits()
-        )
-
+        commit_derived_files = await _commits()
         relevant_files = [f for f in commit_derived_files if f in current_tree]
 
-        async def _static():
-            try:
-                if not relevant_files:
-                    return {
-                        "supported": True,
-                        "skipped": True,
-                        "reason": "no_source_files",
-                    }
-
-                lang = _detect_language(relevant_files)
-                if lang is None:
-                    return {
-                        "supported": True,
-                        "skipped": True,
-                        "reason": "unknown_language",
-                    }
-
-                tmp_clone = tempfile.mkdtemp()
-                try:
-                    clone_result = await _run_tool(
-                        "git",
-                        ["clone", "--depth=1", clone_url, tmp_clone],
-                        timeout=60,
-                    )
-                    if clone_result is None:
-                        return {
-                            "supported": True,
-                            "skipped": True,
-                            "reason": "clone_failed",
-                        }
-                    if clone_result.returncode == -1:
-                        return {"error": "tool_not_found", "supported": True}
-                    if clone_result.returncode != 0:
-                        return {
-                            "supported": True,
-                            "skipped": True,
-                            "reason": "clone_failed",
-                        }
-
-                    return await run_static_analysis(tmp_clone, relevant_files, lang)
-                finally:
-                    shutil.rmtree(tmp_clone, ignore_errors=True)
-            except Exception:
-                return {"supported": True, "skipped": True, "reason": "static_error"}
-
-        async def _graph():
-            try:
-                raw = await run_graphify(clone_url)
-                return prune_graph_for_llm(raw, relevant_files)
-            except Exception:
-                return {"files_analyzed": [], "inherits": [], "calls": []}
-
-        static_analysis, graph_relations = await asyncio.gather(
-            _static(), _graph()
-        )
-
+        # Step 2 evidence is not produced by this code path — it is
+        # sourced exclusively by the analysis service and delivered
+        # via RepositoryEvidenceCapsule.static_analysis and
+        # RepositoryEvidenceCapsule.graph_relations in the
+        # /skill-profiles/generate contract endpoint. The legacy
+        # /profile/repos endpoint returns empty sentinel values.
         return {
             "name": repo_name,
             "owner": owner,
@@ -556,10 +242,15 @@ async def _process_single_repo(owner: str, repo_name: str, github_username: str,
             "stars": meta.get("stargazers_count", 0),
             "forks": meta.get("forks_count", 0),
             "default_branch": default_branch,
-            "clone_url": clone_url,
+            "clone_url": meta.get("clone_url", ""),
             "frameworks": frameworks,
-            "static_analysis": static_analysis,
-            "graph_relations": graph_relations,
+            "dependency_files_found": dep_file_names,
+            "static_analysis": {
+                "supported": True,
+                "skipped": True,
+                "reason": "analysis_service_owns_this",
+            },
+            "graph_relations": {"files_analyzed": [], "inherits": [], "calls": []},
             "commit_derived_files": commit_derived_files,
             "files_evaluated": relevant_files,
             "file_count": len(relevant_files),

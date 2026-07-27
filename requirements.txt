@@ -1,11 +1,13 @@
 -e .
 fastapi
 graphifyy
+httpx
 uvicorn
 PyGithub
 langchain
 langchain-community
 langchain-openrouter
+langchain-anthropic
 langgraph
 python-dotenv
 radon 

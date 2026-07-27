@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "code-analysis-service"
+version = "0.1.0"
+description = "Code quality and structure analysis service"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110.0",
+    "pydantic>=2.0.0",
+    "uvicorn>=0.29.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+dev = [
+    "code-analysis-service[test]",
+    "ruff>=0.5.0",
+]
+
+[project.scripts]
+code-analysis-api = "code_analysis_service.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

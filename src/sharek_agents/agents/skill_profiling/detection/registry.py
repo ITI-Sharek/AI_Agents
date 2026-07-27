@@ -48,11 +48,19 @@ def match_by_dependency_package(package_name: str) -> list[FrameworkEntry]:
     seen: set[str] = set()
     pkg_lower = package_name.lower()
     for prefix, entries in _pkg_index.items():
-        if pkg_lower == prefix or pkg_lower.startswith(prefix + ".") or pkg_lower.startswith(prefix + "/"):
+        if pkg_lower == prefix or pkg_lower.startswith(prefix + ".") or pkg_lower.startswith(prefix + "/") or pkg_lower.startswith(prefix + ":"):
             for e in entries:
                 if e.name not in seen:
                     seen.add(e.name)
                     results.append(e)
+        else:
+            for sep in (".", "/", ":"):
+                if sep + prefix in pkg_lower:
+                    for e in entries:
+                        if e.name not in seen:
+                            seen.add(e.name)
+                            results.append(e)
+                    break
     return results
 
 
@@ -145,6 +153,276 @@ register(FrameworkEntry(
     name="Pydantic",
     category="library",
     dependency_packages=["pydantic"],
+))
+register(FrameworkEntry(
+    name="Litestar",
+    category="framework",
+    dependency_packages=["litestar"],
+))
+register(FrameworkEntry(
+    name="Falcon",
+    category="framework",
+    dependency_packages=["falcon"],
+))
+register(FrameworkEntry(
+    name="Django REST Framework",
+    category="library",
+    dependency_packages=["djangorestframework"],
+))
+register(FrameworkEntry(
+    name="Alembic",
+    category="library",
+    dependency_packages=["alembic"],
+))
+register(FrameworkEntry(
+    name="SQLModel",
+    category="orm",
+    dependency_packages=["sqlmodel"],
+))
+register(FrameworkEntry(
+    name="Requests",
+    category="library",
+    dependency_packages=["requests"],
+))
+register(FrameworkEntry(
+    name="httpx",
+    category="library",
+    dependency_packages=["httpx"],
+))
+register(FrameworkEntry(
+    name="NumPy",
+    category="library",
+    dependency_packages=["numpy"],
+))
+register(FrameworkEntry(
+    name="Pandas",
+    category="library",
+    dependency_packages=["pandas"],
+))
+register(FrameworkEntry(
+    name="PyTorch",
+    category="library",
+    dependency_packages=["torch"],
+))
+register(FrameworkEntry(
+    name="TensorFlow",
+    category="library",
+    dependency_packages=["tensorflow"],
+))
+register(FrameworkEntry(
+    name="scikit-learn",
+    category="library",
+    dependency_packages=["scikit-learn"],
+))
+register(FrameworkEntry(
+    name="LangChain",
+    category="library",
+    dependency_packages=["langchain"],
+))
+register(FrameworkEntry(
+    name="Transformers",
+    category="library",
+    dependency_packages=["transformers"],
+))
+register(FrameworkEntry(
+    name="Matplotlib",
+    category="library",
+    dependency_packages=["matplotlib"],
+))
+register(FrameworkEntry(
+    name="Pillow",
+    category="library",
+    dependency_packages=["pillow"],
+))
+register(FrameworkEntry(
+    name="OpenCV",
+    category="library",
+    dependency_packages=["opencv-python"],
+))
+register(FrameworkEntry(
+    name="Beautiful Soup",
+    category="library",
+    dependency_packages=["beautifulsoup4"],
+))
+register(FrameworkEntry(
+    name="Click",
+    category="library",
+    dependency_packages=["click"],
+))
+register(FrameworkEntry(
+    name="Typer",
+    category="library",
+    dependency_packages=["typer"],
+))
+register(FrameworkEntry(
+    name="Rich",
+    category="library",
+    dependency_packages=["rich"],
+))
+register(FrameworkEntry(
+    name="Loguru",
+    category="library",
+    dependency_packages=["loguru"],
+))
+register(FrameworkEntry(
+    name="Gunicorn",
+    category="library",
+    dependency_packages=["gunicorn"],
+))
+register(FrameworkEntry(
+    name="Uvicorn",
+    category="library",
+    dependency_packages=["uvicorn"],
+))
+register(FrameworkEntry(
+    name="Redis",
+    category="library",
+    dependency_packages=["redis"],
+))
+register(FrameworkEntry(
+    name="Psycopg",
+    category="library",
+    dependency_packages=["psycopg2", "psycopg2-binary", "psycopg"],
+))
+register(FrameworkEntry(
+    name="asyncpg",
+    category="library",
+    dependency_packages=["asyncpg"],
+))
+register(FrameworkEntry(
+    name="Motor",
+    category="library",
+    dependency_packages=["motor"],
+))
+register(FrameworkEntry(
+    name="Django Ninja",
+    category="framework",
+    dependency_packages=["django-ninja"],
+))
+register(FrameworkEntry(
+    name="Authlib",
+    category="library",
+    dependency_packages=["authlib"],
+))
+register(FrameworkEntry(
+    name="PyJWT",
+    category="library",
+    dependency_packages=["pyjwt"],
+))
+register(FrameworkEntry(
+    name="python-dotenv",
+    category="library",
+    dependency_packages=["python-dotenv"],
+))
+register(FrameworkEntry(
+    name="Boto3",
+    category="library",
+    dependency_packages=["boto3"],
+))
+register(FrameworkEntry(
+    name="OpenAI",
+    category="library",
+    dependency_packages=["openai"],
+))
+register(FrameworkEntry(
+    name="Scrapy",
+    category="framework",
+    dependency_packages=["scrapy"],
+))
+register(FrameworkEntry(
+    name="Selenium",
+    category="testing",
+    dependency_packages=["selenium"],
+))
+register(FrameworkEntry(
+    name="Playwright",
+    category="testing",
+    dependency_packages=["playwright"],
+))
+register(FrameworkEntry(
+    name="factory_boy",
+    category="testing",
+    dependency_packages=["factory-boy"],
+))
+register(FrameworkEntry(
+    name="Hypothesis",
+    category="testing",
+    dependency_packages=["hypothesis"],
+))
+register(FrameworkEntry(
+    name="pytest-cov",
+    category="testing",
+    dependency_packages=["pytest-cov"],
+))
+register(FrameworkEntry(
+    name="pytest-asyncio",
+    category="testing",
+    dependency_packages=["pytest-asyncio"],
+))
+register(FrameworkEntry(
+    name="pytest-django",
+    category="testing",
+    dependency_packages=["pytest-django"],
+))
+register(FrameworkEntry(
+    name="coverage.py",
+    category="testing",
+    dependency_packages=["coverage"],
+))
+register(FrameworkEntry(
+    name="tox",
+    category="testing",
+    dependency_packages=["tox"],
+))
+register(FrameworkEntry(
+    name="mypy",
+    category="testing",
+    dependency_packages=["mypy"],
+))
+register(FrameworkEntry(
+    name="ruff",
+    category="library",
+    dependency_packages=["ruff"],
+))
+register(FrameworkEntry(
+    name="Poetry",
+    category="library",
+    dependency_packages=["poetry"],
+))
+register(FrameworkEntry(
+    name="Apache Airflow",
+    category="framework",
+    dependency_packages=["apache-airflow"],
+))
+register(FrameworkEntry(
+    name="Dramatiq",
+    category="library",
+    dependency_packages=["dramatiq"],
+))
+register(FrameworkEntry(
+    name="APScheduler",
+    category="library",
+    dependency_packages=["apscheduler"],
+))
+register(FrameworkEntry(
+    name="spaCy",
+    category="library",
+    dependency_packages=["spacy"],
+))
+register(FrameworkEntry(
+    name="NLTK",
+    category="library",
+    dependency_packages=["nltk"],
+))
+register(FrameworkEntry(
+    name="PySpark",
+    category="library",
+    dependency_packages=["pyspark"],
+))
+register(FrameworkEntry(
+    name="WebSockets",
+    category="library",
+    dependency_packages=["websockets"],
 ))
 
 # --- JavaScript / TypeScript ---
@@ -328,6 +606,171 @@ register(FrameworkEntry(
     category="library",
     dependency_packages=["tailwindcss"],
 ))
+register(FrameworkEntry(
+    name="React Native",
+    category="framework",
+    dependency_packages=["react-native"],
+))
+register(FrameworkEntry(
+    name="Electron",
+    category="framework",
+    dependency_packages=["electron"],
+))
+register(FrameworkEntry(
+    name="React Router",
+    category="library",
+    dependency_packages=["react-router-dom"],
+))
+register(FrameworkEntry(
+    name="React Hook Form",
+    category="library",
+    dependency_packages=["react-hook-form"],
+))
+register(FrameworkEntry(
+    name="SWR",
+    category="library",
+    dependency_packages=["swr"],
+))
+register(FrameworkEntry(
+    name="Material UI",
+    category="library",
+    dependency_packages=["@mui/material", "@mui/icons-material"],
+))
+register(FrameworkEntry(
+    name="Chakra UI",
+    category="library",
+    dependency_packages=["@chakra-ui/react"],
+))
+register(FrameworkEntry(
+    name="Ant Design",
+    category="library",
+    dependency_packages=["antd"],
+))
+register(FrameworkEntry(
+    name="Vite",
+    category="library",
+    dependency_packages=["vite"],
+))
+register(FrameworkEntry(
+    name="Webpack",
+    category="library",
+    dependency_packages=["webpack"],
+))
+register(FrameworkEntry(
+    name="TypeScript",
+    category="library",
+    dependency_packages=["typescript"],
+))
+register(FrameworkEntry(
+    name="date-fns",
+    category="library",
+    dependency_packages=["date-fns"],
+))
+register(FrameworkEntry(
+    name="Day.js",
+    category="library",
+    dependency_packages=["dayjs"],
+))
+register(FrameworkEntry(
+    name="Passport",
+    category="library",
+    dependency_packages=["passport"],
+))
+register(FrameworkEntry(
+    name="jsonwebtoken",
+    category="library",
+    dependency_packages=["jsonwebtoken"],
+))
+register(FrameworkEntry(
+    name="Socket.IO",
+    category="library",
+    dependency_packages=["socket.io", "socket.io-client"],
+))
+register(FrameworkEntry(
+    name="GraphQL",
+    category="library",
+    dependency_packages=["graphql"],
+))
+register(FrameworkEntry(
+    name="Apollo",
+    category="library",
+    dependency_packages=["@apollo/client", "apollo-server"],
+))
+register(FrameworkEntry(
+    name="ioredis",
+    category="library",
+    dependency_packages=["ioredis"],
+))
+register(FrameworkEntry(
+    name="Bull",
+    category="library",
+    dependency_packages=["bull"],
+))
+register(FrameworkEntry(
+    name="BullMQ",
+    category="library",
+    dependency_packages=["bullmq"],
+))
+register(FrameworkEntry(
+    name="Sass",
+    category="library",
+    dependency_packages=["sass"],
+))
+register(FrameworkEntry(
+    name="PostCSS",
+    category="library",
+    dependency_packages=["postcss"],
+))
+register(FrameworkEntry(
+    name="Bootstrap",
+    category="library",
+    dependency_packages=["bootstrap"],
+))
+register(FrameworkEntry(
+    name="Framer Motion",
+    category="library",
+    dependency_packages=["framer-motion"],
+))
+register(FrameworkEntry(
+    name="Three.js",
+    category="library",
+    dependency_packages=["three"],
+))
+register(FrameworkEntry(
+    name="D3.js",
+    category="library",
+    dependency_packages=["d3"],
+))
+register(FrameworkEntry(
+    name="Chart.js",
+    category="library",
+    dependency_packages=["chart.js"],
+))
+register(FrameworkEntry(
+    name="styled-components",
+    category="library",
+    dependency_packages=["styled-components"],
+))
+register(FrameworkEntry(
+    name="Emotion",
+    category="library",
+    dependency_packages=["@emotion/react"],
+))
+register(FrameworkEntry(
+    name="Knex",
+    category="orm",
+    dependency_packages=["knex"],
+))
+register(FrameworkEntry(
+    name="Yup",
+    category="library",
+    dependency_packages=["yup"],
+))
+register(FrameworkEntry(
+    name="Formik",
+    category="library",
+    dependency_packages=["formik"],
+))
 
 # --- PHP ---
 register(FrameworkEntry(
@@ -410,6 +853,96 @@ register(FrameworkEntry(
     category="library",
     dependency_packages=["monolog/monolog"],
 ))
+register(FrameworkEntry(
+    name="Laminas",
+    category="framework",
+    dependency_packages=["laminas/laminas-mvc"],
+))
+register(FrameworkEntry(
+    name="Mezzio",
+    category="framework",
+    dependency_packages=["mezzio/mezzio"],
+))
+register(FrameworkEntry(
+    name="Symfony Console",
+    category="library",
+    dependency_packages=["symfony/console"],
+))
+register(FrameworkEntry(
+    name="PHPStan",
+    category="testing",
+    dependency_packages=["phpstan/phpstan"],
+))
+register(FrameworkEntry(
+    name="PHP CS Fixer",
+    category="library",
+    dependency_packages=["friendsofphp/php-cs-fixer"],
+))
+register(FrameworkEntry(
+    name="PHP_CodeSniffer",
+    category="testing",
+    dependency_packages=["squizlabs/php_codesniffer"],
+))
+register(FrameworkEntry(
+    name="Doctrine DBAL",
+    category="orm",
+    dependency_packages=["doctrine/dbal"],
+))
+register(FrameworkEntry(
+    name="Laravel Sanctum",
+    category="library",
+    dependency_packages=["laravel/sanctum"],
+))
+register(FrameworkEntry(
+    name="Laravel Horizon",
+    category="library",
+    dependency_packages=["laravel/horizon"],
+))
+register(FrameworkEntry(
+    name="Laravel Telescope",
+    category="library",
+    dependency_packages=["laravel/telescope"],
+))
+register(FrameworkEntry(
+    name="Laravel Socialite",
+    category="library",
+    dependency_packages=["laravel/socialite"],
+))
+register(FrameworkEntry(
+    name="Laravel Debugbar",
+    category="library",
+    dependency_packages=["barryvdh/laravel-debugbar"],
+))
+register(FrameworkEntry(
+    name="Laravel IDE Helper",
+    category="library",
+    dependency_packages=["barryvdh/laravel-ide-helper"],
+))
+register(FrameworkEntry(
+    name="Predis",
+    category="library",
+    dependency_packages=["predis/predis"],
+))
+register(FrameworkEntry(
+    name="php-amqplib",
+    category="library",
+    dependency_packages=["php-amqplib/php-amqplib"],
+))
+register(FrameworkEntry(
+    name="Carbon",
+    category="library",
+    dependency_packages=["nesbot/carbon"],
+))
+register(FrameworkEntry(
+    name="Spatie Permissions",
+    category="library",
+    dependency_packages=["spatie/laravel-permission"],
+))
+register(FrameworkEntry(
+    name="Spatie Media Library",
+    category="library",
+    dependency_packages=["spatie/laravel-medialibrary"],
+))
 
 # --- Java ---
 register(FrameworkEntry(
@@ -440,12 +973,12 @@ register(FrameworkEntry(
 register(FrameworkEntry(
     name="Grails",
     category="framework",
-    dependency_packages=["grails"],
+    dependency_packages=["grails", "org.grails"],
 ))
 register(FrameworkEntry(
     name="Play Framework",
     category="framework",
-    dependency_packages=["play"],
+    dependency_packages=["play", "com.typesafe.play"],
 ))
 register(FrameworkEntry(
     name="Hibernate",
@@ -481,6 +1014,126 @@ register(FrameworkEntry(
     name="Lombok",
     category="library",
     dependency_packages=["lombok"],
+))
+register(FrameworkEntry(
+    name="Vert.x",
+    category="framework",
+    dependency_packages=["io.vertx"],
+))
+register(FrameworkEntry(
+    name="Dropwizard",
+    category="framework",
+    dependency_packages=["dropwizard-core"],
+))
+register(FrameworkEntry(
+    name="Helidon",
+    category="framework",
+    dependency_packages=["io.helidon"],
+))
+register(FrameworkEntry(
+    name="Spring Data JPA",
+    category="orm",
+    dependency_packages=["spring-data-jpa"],
+))
+register(FrameworkEntry(
+    name="Spring Security",
+    category="library",
+    dependency_packages=["spring-security-config", "spring-security-core"],
+))
+register(FrameworkEntry(
+    name="Spring Cloud",
+    category="library",
+    dependency_packages=["spring-cloud-starter"],
+))
+register(FrameworkEntry(
+    name="Jackson",
+    category="library",
+    dependency_packages=["jackson-databind", "jackson-core"],
+))
+register(FrameworkEntry(
+    name="SLF4J",
+    category="library",
+    dependency_packages=["slf4j-api"],
+))
+register(FrameworkEntry(
+    name="Logback",
+    category="library",
+    dependency_packages=["logback-classic"],
+))
+register(FrameworkEntry(
+    name="Guava",
+    category="library",
+    dependency_packages=["guava"],
+))
+register(FrameworkEntry(
+    name="OkHttp",
+    category="library",
+    dependency_packages=["okhttp"],
+))
+register(FrameworkEntry(
+    name="Retrofit",
+    category="library",
+    dependency_packages=["retrofit"],
+))
+register(FrameworkEntry(
+    name="Netty",
+    category="library",
+    dependency_packages=["netty-all"],
+))
+register(FrameworkEntry(
+    name="JOOQ",
+    category="orm",
+    dependency_packages=["jooq"],
+))
+register(FrameworkEntry(
+    name="Flyway",
+    category="library",
+    dependency_packages=["flyway-core", "flyway-maven-plugin"],
+))
+register(FrameworkEntry(
+    name="Liquibase",
+    category="library",
+    dependency_packages=["liquibase-core"],
+))
+register(FrameworkEntry(
+    name="MapStruct",
+    category="library",
+    dependency_packages=["mapstruct"],
+))
+register(FrameworkEntry(
+    name="Caffeine",
+    category="library",
+    dependency_packages=["caffeine"],
+))
+register(FrameworkEntry(
+    name="AssertJ",
+    category="testing",
+    dependency_packages=["assertj-core"],
+))
+register(FrameworkEntry(
+    name="REST Assured",
+    category="testing",
+    dependency_packages=["rest-assured"],
+))
+register(FrameworkEntry(
+    name="WireMock",
+    category="testing",
+    dependency_packages=["wiremock"],
+))
+register(FrameworkEntry(
+    name="Apache Kafka",
+    category="library",
+    dependency_packages=["kafka-clients"],
+))
+register(FrameworkEntry(
+    name="Hibernate Validator",
+    category="library",
+    dependency_packages=["hibernate-validator"],
+))
+register(FrameworkEntry(
+    name="Resilience4j",
+    category="library",
+    dependency_packages=["resilience4j"],
 ))
 
 # --- C# / .NET ---
@@ -543,6 +1196,81 @@ register(FrameworkEntry(
     name="MediatR",
     category="library",
     dependency_packages=["mediatr"],
+))
+register(FrameworkEntry(
+    name=".NET MAUI",
+    category="framework",
+    dependency_packages=["microsoft.maui"],
+))
+register(FrameworkEntry(
+    name="SignalR",
+    category="library",
+    dependency_packages=["microsoft.aspnetcore.signalr"],
+))
+register(FrameworkEntry(
+    name="MassTransit",
+    category="library",
+    dependency_packages=["masstransit"],
+))
+register(FrameworkEntry(
+    name="Polly",
+    category="library",
+    dependency_packages=["polly"],
+))
+register(FrameworkEntry(
+    name="Newtonsoft.Json",
+    category="library",
+    dependency_packages=["newtonsoft.json"],
+))
+register(FrameworkEntry(
+    name="Refit",
+    category="library",
+    dependency_packages=["refit"],
+))
+register(FrameworkEntry(
+    name="RestSharp",
+    category="library",
+    dependency_packages=["restsharp"],
+))
+register(FrameworkEntry(
+    name="Swashbuckle",
+    category="library",
+    dependency_packages=["swashbuckle.aspnetcore"],
+))
+register(FrameworkEntry(
+    name="FluentAssertions",
+    category="testing",
+    dependency_packages=["fluentassertions"],
+))
+register(FrameworkEntry(
+    name="NSubstitute",
+    category="testing",
+    dependency_packages=["nsubstitute"],
+))
+register(FrameworkEntry(
+    name="BenchmarkDotNet",
+    category="testing",
+    dependency_packages=["benchmarkdotnet"],
+))
+register(FrameworkEntry(
+    name="SpecFlow",
+    category="testing",
+    dependency_packages=["specflow"],
+))
+register(FrameworkEntry(
+    name="MongoDB Driver",
+    category="library",
+    dependency_packages=["mongodb.driver"],
+))
+register(FrameworkEntry(
+    name="StackExchange.Redis",
+    category="library",
+    dependency_packages=["stackexchange.redis"],
+))
+register(FrameworkEntry(
+    name="Hangfire",
+    category="library",
+    dependency_packages=["hangfire"],
 ))
 
 # --- Go ---
@@ -616,6 +1344,96 @@ register(FrameworkEntry(
     category="library",
     dependency_packages=["github.com/sirupsen/logrus"],
 ))
+register(FrameworkEntry(
+    name="HttpRouter",
+    category="framework",
+    dependency_packages=["github.com/julienschmidt/httprouter"],
+))
+register(FrameworkEntry(
+    name="Negroni",
+    category="library",
+    dependency_packages=["github.com/urfave/negroni"],
+))
+register(FrameworkEntry(
+    name="Gorilla WebSocket",
+    category="library",
+    dependency_packages=["github.com/gorilla/websocket"],
+))
+register(FrameworkEntry(
+    name="Go-Redis",
+    category="library",
+    dependency_packages=["github.com/go-redis/redis", "github.com/redis/go-redis"],
+))
+register(FrameworkEntry(
+    name="MongoDB Go Driver",
+    category="library",
+    dependency_packages=["go.mongodb.org/mongo-driver"],
+))
+register(FrameworkEntry(
+    name="pgx",
+    category="library",
+    dependency_packages=["github.com/jackc/pgx"],
+))
+register(FrameworkEntry(
+    name="sqlx",
+    category="library",
+    dependency_packages=["github.com/jmoiron/sqlx"],
+))
+register(FrameworkEntry(
+    name="Go Kit",
+    category="library",
+    dependency_packages=["github.com/go-kit/kit"],
+))
+register(FrameworkEntry(
+    name="Wire",
+    category="library",
+    dependency_packages=["github.com/google/wire"],
+))
+register(FrameworkEntry(
+    name="Fx",
+    category="library",
+    dependency_packages=["go.uber.org/fx"],
+))
+register(FrameworkEntry(
+    name="Prometheus",
+    category="library",
+    dependency_packages=["github.com/prometheus/client_golang"],
+))
+register(FrameworkEntry(
+    name="OpenTelemetry",
+    category="library",
+    dependency_packages=["go.opentelemetry.io/otel"],
+))
+register(FrameworkEntry(
+    name="gRPC-Go",
+    category="library",
+    dependency_packages=["google.golang.org/grpc"],
+))
+register(FrameworkEntry(
+    name="Casbin",
+    category="library",
+    dependency_packages=["github.com/casbin/casbin"],
+))
+register(FrameworkEntry(
+    name="golang-jwt",
+    category="library",
+    dependency_packages=["github.com/golang-jwt/jwt"],
+))
+register(FrameworkEntry(
+    name="go-playground/validator",
+    category="library",
+    dependency_packages=["github.com/go-playground/validator"],
+))
+register(FrameworkEntry(
+    name="golang-migrate",
+    category="library",
+    dependency_packages=["github.com/golang-migrate/migrate"],
+))
+register(FrameworkEntry(
+    name="Gorilla Sessions",
+    category="library",
+    dependency_packages=["github.com/gorilla/sessions"],
+))
 
 # --- Rust ---
 register(FrameworkEntry(
@@ -683,6 +1501,96 @@ register(FrameworkEntry(
     category="library",
     dependency_packages=["clap"],
 ))
+register(FrameworkEntry(
+    name="Leptos",
+    category="framework",
+    dependency_packages=["leptos"],
+))
+register(FrameworkEntry(
+    name="Yew",
+    category="framework",
+    dependency_packages=["yew"],
+))
+register(FrameworkEntry(
+    name="Dioxus",
+    category="framework",
+    dependency_packages=["dioxus"],
+))
+register(FrameworkEntry(
+    name="sqlx",
+    category="orm",
+    dependency_packages=["sqlx"],
+))
+register(FrameworkEntry(
+    name="Hyper",
+    category="library",
+    dependency_packages=["hyper"],
+))
+register(FrameworkEntry(
+    name="Tonic",
+    category="library",
+    dependency_packages=["tonic"],
+))
+register(FrameworkEntry(
+    name="anyhow",
+    category="library",
+    dependency_packages=["anyhow"],
+))
+register(FrameworkEntry(
+    name="thiserror",
+    category="library",
+    dependency_packages=["thiserror"],
+))
+register(FrameworkEntry(
+    name="chrono",
+    category="library",
+    dependency_packages=["chrono"],
+))
+register(FrameworkEntry(
+    name="rand",
+    category="library",
+    dependency_packages=["rand"],
+))
+register(FrameworkEntry(
+    name="futures",
+    category="library",
+    dependency_packages=["futures"],
+))
+register(FrameworkEntry(
+    name="async-trait",
+    category="library",
+    dependency_packages=["async-trait"],
+))
+register(FrameworkEntry(
+    name="tower",
+    category="library",
+    dependency_packages=["tower"],
+))
+register(FrameworkEntry(
+    name="Tower HTTP",
+    category="library",
+    dependency_packages=["tower-http"],
+))
+register(FrameworkEntry(
+    name="Lambda Runtime",
+    category="library",
+    dependency_packages=["lambda-runtime"],
+))
+register(FrameworkEntry(
+    name="Bevy",
+    category="framework",
+    dependency_packages=["bevy"],
+))
+register(FrameworkEntry(
+    name="Rusqlite",
+    category="library",
+    dependency_packages=["rusqlite"],
+))
+register(FrameworkEntry(
+    name="redis-rs",
+    category="library",
+    dependency_packages=["redis"],
+))
 
 # --- Ruby ---
 register(FrameworkEntry(
@@ -744,6 +1652,131 @@ register(FrameworkEntry(
     name="Kaminari",
     category="library",
     dependency_packages=["kaminari"],
+))
+register(FrameworkEntry(
+    name="Grape",
+    category="framework",
+    dependency_packages=["grape"],
+))
+register(FrameworkEntry(
+    name="Roda",
+    category="framework",
+    dependency_packages=["roda"],
+))
+register(FrameworkEntry(
+    name="Padrino",
+    category="framework",
+    dependency_packages=["padrino"],
+))
+register(FrameworkEntry(
+    name="Mongoid",
+    category="orm",
+    dependency_packages=["mongoid"],
+))
+register(FrameworkEntry(
+    name="ROM",
+    category="orm",
+    dependency_packages=["rom"],
+))
+register(FrameworkEntry(
+    name="Puma",
+    category="library",
+    dependency_packages=["puma"],
+))
+register(FrameworkEntry(
+    name="Pundit",
+    category="library",
+    dependency_packages=["pundit"],
+))
+register(FrameworkEntry(
+    name="CanCanCan",
+    category="library",
+    dependency_packages=["cancancan"],
+))
+register(FrameworkEntry(
+    name="Active Admin",
+    category="library",
+    dependency_packages=["activeadmin"],
+))
+register(FrameworkEntry(
+    name="Rails Admin",
+    category="library",
+    dependency_packages=["rails_admin"],
+))
+register(FrameworkEntry(
+    name="CarrierWave",
+    category="library",
+    dependency_packages=["carrierwave"],
+))
+register(FrameworkEntry(
+    name="Paperclip",
+    category="library",
+    dependency_packages=["paperclip"],
+))
+register(FrameworkEntry(
+    name="OmniAuth",
+    category="library",
+    dependency_packages=["omniauth"],
+))
+register(FrameworkEntry(
+    name="Doorkeeper",
+    category="library",
+    dependency_packages=["doorkeeper"],
+))
+register(FrameworkEntry(
+    name="Ransack",
+    category="library",
+    dependency_packages=["ransack"],
+))
+register(FrameworkEntry(
+    name="Searchkick",
+    category="library",
+    dependency_packages=["searchkick"],
+))
+register(FrameworkEntry(
+    name="Stripe",
+    category="library",
+    dependency_packages=["stripe"],
+))
+register(FrameworkEntry(
+    name="Resque",
+    category="library",
+    dependency_packages=["resque"],
+))
+register(FrameworkEntry(
+    name="Delayed Job",
+    category="library",
+    dependency_packages=["delayed_job"],
+))
+register(FrameworkEntry(
+    name="Good Job",
+    category="library",
+    dependency_packages=["good_job"],
+))
+register(FrameworkEntry(
+    name="Redis Ruby",
+    category="library",
+    dependency_packages=["redis"],
+))
+register(FrameworkEntry(
+    name="Sentry Ruby",
+    category="library",
+    dependency_packages=["sentry-ruby"],
+))
+register(FrameworkEntry(
+    name="AASM",
+    category="library",
+    dependency_packages=["aasm"],
+))
+register(FrameworkEntry(
+    name="Pagy",
+    category="library",
+    dependency_packages=["pagy"],
+))
+register(FrameworkEntry(
+    name="Rake",
+    category="library",
+    dependency_packages=["rake"],
 ))
 
 # --- Swift ---
@@ -807,6 +1840,41 @@ register(FrameworkEntry(
     category="testing",
     dependency_packages=["nimble"],
 ))
+register(FrameworkEntry(
+    name="Combine",
+    category="library",
+    dependency_packages=[],
+))
+register(FrameworkEntry(
+    name="GRDB",
+    category="orm",
+    dependency_packages=["grdb"],
+))
+register(FrameworkEntry(
+    name="SwiftHTTP",
+    category="library",
+    dependency_packages=[],
+))
+register(FrameworkEntry(
+    name="Moya",
+    category="library",
+    dependency_packages=["moya"],
+))
+register(FrameworkEntry(
+    name="SwiftyJSON",
+    category="library",
+    dependency_packages=["swiftyjson"],
+))
+register(FrameworkEntry(
+    name="PromiseKit",
+    category="library",
+    dependency_packages=["promisekit"],
+))
+register(FrameworkEntry(
+    name="SwiftLint",
+    category="library",
+    dependency_packages=["swiftlint"],
+))
 
 # --- Flutter / Dart ---
 register(FrameworkEntry(
@@ -843,4 +1911,317 @@ register(FrameworkEntry(
     name="Hive",
     category="library",
     dependency_packages=["hive"],
+))
+register(FrameworkEntry(
+    name="Shared Preferences",
+    category="library",
+    dependency_packages=["shared_preferences"],
+))
+register(FrameworkEntry(
+    name="Drift",
+    category="orm",
+    dependency_packages=["drift"],
+))
+register(FrameworkEntry(
+    name="Isar",
+    category="orm",
+    dependency_packages=["isar"],
+))
+register(FrameworkEntry(
+    name="Freezed",
+    category="library",
+    dependency_packages=["freezed"],
+))
+register(FrameworkEntry(
+    name="JSON Serializable",
+    category="library",
+    dependency_packages=["json_serializable"],
+))
+register(FrameworkEntry(
+    name="Cached Network Image",
+    category="library",
+    dependency_packages=["cached_network_image"],
+))
+register(FrameworkEntry(
+    name="Firebase",
+    category="library",
+    dependency_packages=["firebase_core"],
+))
+register(FrameworkEntry(
+    name="Flutter Secure Storage",
+    category="library",
+    dependency_packages=["flutter_secure_storage"],
+))
+register(FrameworkEntry(
+    name="Go Router",
+    category="library",
+    dependency_packages=["go_router"],
+))
+register(FrameworkEntry(
+    name="Flutter Bloc",
+    category="library",
+    dependency_packages=["flutter_bloc"],
+))
+register(FrameworkEntry(
+    name="Equatable",
+    category="library",
+    dependency_packages=["equatable"],
+))
+register(FrameworkEntry(
+    name="Intl",
+    category="library",
+    dependency_packages=["intl"],
+))
+register(FrameworkEntry(
+    name="URL Launcher",
+    category="library",
+    dependency_packages=["url_launcher"],
+))
+register(FrameworkEntry(
+    name="Image Picker",
+    category="library",
+    dependency_packages=["image_picker"],
+))
+register(FrameworkEntry(
+    name="Google Fonts",
+    category="library",
+    dependency_packages=["google_fonts"],
+))
+
+# --- Kotlin ---
+register(FrameworkEntry(
+    name="Ktor",
+    category="framework",
+    dependency_packages=["io.ktor"],
+))
+register(FrameworkEntry(
+    name="Kotlin Multiplatform",
+    category="framework",
+    dependency_packages=["org.jetbrains.kotlin.multiplatform"],
+))
+register(FrameworkEntry(
+    name="Jetpack Compose",
+    category="library",
+    dependency_packages=["androidx.compose.ui"],
+))
+register(FrameworkEntry(
+    name="Kotlin Coroutines",
+    category="library",
+    dependency_packages=["org.jetbrains.kotlinx:kotlinx-coroutines-core"],
+))
+register(FrameworkEntry(
+    name="Kotlinx Serialization",
+    category="library",
+    dependency_packages=["org.jetbrains.kotlinx:kotlinx-serialization-json"],
+))
+register(FrameworkEntry(
+    name="Exposed",
+    category="orm",
+    dependency_packages=["org.jetbrains.exposed", "exposed-core"],
+))
+register(FrameworkEntry(
+    name="Koin",
+    category="library",
+    dependency_packages=["org.koin"],
+))
+register(FrameworkEntry(
+    name="Ktor Client",
+    category="library",
+    dependency_packages=["io.ktor:ktor-client"],
+))
+register(FrameworkEntry(
+    name="Kotlin Test",
+    category="testing",
+    dependency_packages=["org.jetbrains.kotlin:kotlin-test"],
+))
+register(FrameworkEntry(
+    name="MockK",
+    category="testing",
+    dependency_packages=["io.mockk"],
+))
+register(FrameworkEntry(
+    name="Kotlinx DateTime",
+    category="library",
+    dependency_packages=["org.jetbrains.kotlinx:kotlinx-datetime"],
+))
+register(FrameworkEntry(
+    name="Anko",
+    category="library",
+    dependency_packages=["org.jetbrains.anko"],
+))
+
+# --- Scala ---
+register(FrameworkEntry(
+    name="Akka",
+    category="library",
+    dependency_packages=["com.typesafe.akka"],
+))
+register(FrameworkEntry(
+    name="Apache Spark",
+    category="library",
+    dependency_packages=["org.apache.spark"],
+))
+register(FrameworkEntry(
+    name="ZIO",
+    category="library",
+    dependency_packages=["dev.zio"],
+))
+register(FrameworkEntry(
+    name="Cats",
+    category="library",
+    dependency_packages=["org.typelevel:cats-core"],
+))
+register(FrameworkEntry(
+    name="Cats Effect",
+    category="library",
+    dependency_packages=["org.typelevel:cats-effect"],
+))
+register(FrameworkEntry(
+    name="http4s",
+    category="framework",
+    dependency_packages=["org.http4s"],
+))
+register(FrameworkEntry(
+    name="Slick",
+    category="orm",
+    dependency_packages=["com.typesafe.slick"],
+))
+register(FrameworkEntry(
+    name="Doobie",
+    category="orm",
+    dependency_packages=["org.tpolecat:doobie-core"],
+))
+register(FrameworkEntry(
+    name="ScalaTest",
+    category="testing",
+    dependency_packages=["org.scalatest"],
+))
+register(FrameworkEntry(
+    name="ScalaCheck",
+    category="testing",
+    dependency_packages=["org.scalacheck"],
+))
+register(FrameworkEntry(
+    name="Specs2",
+    category="testing",
+    dependency_packages=["org.specs2"],
+))
+register(FrameworkEntry(
+    name="ScalaPB",
+    category="library",
+    dependency_packages=["scalapb"],
+))
+register(FrameworkEntry(
+    name="Circe",
+    category="library",
+    dependency_packages=["io.circe"],
+))
+register(FrameworkEntry(
+    name="Tapir",
+    category="library",
+    dependency_packages=["com.softwaremill.sttp.tapir"],
+))
+register(FrameworkEntry(
+    name="Sttp",
+    category="library",
+    dependency_packages=["com.softwaremill.sttp.client"],
+))
+register(FrameworkEntry(
+    name="Quill",
+    category="orm",
+    dependency_packages=["io.getquill"],
+))
+
+# --- Groovy ---
+register(FrameworkEntry(
+    name="Gradle",
+    category="library",
+    dependency_packages=[],
+))
+register(FrameworkEntry(
+    name="Geb",
+    category="testing",
+    dependency_packages=["org.gebish:geb-core"],
+))
+register(FrameworkEntry(
+    name="Spock",
+    category="testing",
+    dependency_packages=["org.spockframework:spock-core"],
+))
+register(FrameworkEntry(
+    name="Groovy Templates",
+    category="template_engine",
+    dependency_packages=["org.apache.groovy:groovy-templates"],
+))
+register(FrameworkEntry(
+    name="GPars",
+    category="library",
+    dependency_packages=["org.codehaus.gpars:gpars"],
+))
+
+# --- Elixir ---
+register(FrameworkEntry(
+    name="Phoenix",
+    category="framework",
+    dependency_packages=["phoenix"],
+))
+register(FrameworkEntry(
+    name="Ecto",
+    category="orm",
+    dependency_packages=["ecto"],
+))
+register(FrameworkEntry(
+    name="Phoenix LiveView",
+    category="framework",
+    dependency_packages=["phoenix_live_view"],
+))
+register(FrameworkEntry(
+    name="Absinthe",
+    category="library",
+    dependency_packages=["absinthe"],
+))
+register(FrameworkEntry(
+    name="ExUnit",
+    category="testing",
+    dependency_packages=["ex_unit"],
+))
+register(FrameworkEntry(
+    name="Tesla",
+    category="library",
+    dependency_packages=["tesla"],
+))
+register(FrameworkEntry(
+    name="Poison",
+    category="library",
+    dependency_packages=["poison"],
+))
+register(FrameworkEntry(
+    name="Jason",
+    category="library",
+    dependency_packages=["jason"],
+))
+register(FrameworkEntry(
+    name="Broadway",
+    category="library",
+    dependency_packages=["broadway"],
+))
+register(FrameworkEntry(
+    name="Oban",
+    category="library",
+    dependency_packages=["oban"],
+))
+register(FrameworkEntry(
+    name="Mox",
+    category="testing",
+    dependency_packages=["mox"],
+))
+register(FrameworkEntry(
+    name="Nx",
+    category="library",
+    dependency_packages=["nx"],
+))
+register(FrameworkEntry(
+    name="Ash Framework",
+    category="framework",
+    dependency_packages=["ash"],
 ))

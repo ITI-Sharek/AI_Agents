@@ -2,6 +2,28 @@
 
 Profiles GitHub repositories by analyzing code quality, frameworks, architecture, and metadata — producing a structured skill profile per repo.
 
+## Backend Evidence-Capsule Contract
+
+The NestJS worker uses `POST /skill-profiles/generate`. This endpoint accepts
+backend-selected repository evidence capsules, analyzes only that supplied
+evidence, and returns camel-cased skill candidates with audit/version metadata.
+It does not crawl the submitted repository URLs.
+
+Generation requires a shared bearer token of at least 32 characters:
+
+```bash
+export AI_SERVICE_AUTH_TOKEN='replace-with-the-same-long-random-token-as-NestJS'
+uvicorn sharek_agents.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+`GET /health` remains unauthenticated. Binding to `0.0.0.0` makes the service
+reachable from the local NestJS Docker container through
+`http://host.docker.internal:8000`; protect the listener with the local
+machine/firewall.
+
+Optional audit/runtime settings are `AI_PROVIDER`, `DEFAULT_MODEL`,
+`AI_SKILL_PROFILE_TIMEOUT_SECONDS`, and `AI_SERVICE_VERSION`.
+
 ---
 
 ## Architecture Overview

@@ -1,37 +1,24 @@
-import asyncio
-import sys
-
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
 
+from sharek_agents.agents.skill_profiling.contract_schemas import (
+    SkillProfileInput,
+    SkillProfileResult,
+)
+from sharek_agents.agents.skill_profiling.contract_service import (
+    SkillProfileProviderError,
+    SkillProfileProviderTimeout,
+    generate_skill_profile,
+)
 from sharek_agents.agents.skill_profiling.router import profile_repos
 from sharek_agents.agents.skill_profiling.schemas import AgentResponse
 from sharek_agents.common.logging import get_logger
+from sharek_agents.security import require_service_token
 
 
 logger = get_logger(__name__)
 
 app = FastAPI(title="SHARE-K AI Agents")
-
-
-@app.on_event("startup")
-async def check_external_tools():
-    for tool, args in [
-        ("graphify", [sys.executable, "-m", "graphify", "--version"]),
-        ("git", ["git", "--version"]),
-    ]:
-        proc = await asyncio.create_subprocess_exec(
-            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            logger.warning(
-                "TOOL MISSING: '%s' is not available — %s",
-                tool,
-                stderr.decode().strip() or stdout.decode().strip(),
-            )
-        else:
-            logger.info("Tool found: %s", stdout.decode().strip())
 
 
 class ProfileRequest(BaseModel):
@@ -42,6 +29,32 @@ class ProfileRequest(BaseModel):
 @app.post("/profile/repos", response_model=AgentResponse)
 async def profile_repos_endpoint(body: ProfileRequest):
     return await profile_repos(body.repo_urls, github_username=body.github_username)
+
+
+@app.post(
+    "/skill-profiles/generate",
+    response_model=SkillProfileResult,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider returned invalid output or failed"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def generate_skill_profile_endpoint(body: SkillProfileInput):
+    try:
+        return await generate_skill_profile(body)
+    except SkillProfileProviderTimeout as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Skill-profile provider timed out",
+        ) from exc
+    except SkillProfileProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Skill-profile provider returned an invalid response",
+        ) from exc
 
 
 @app.get("/health")

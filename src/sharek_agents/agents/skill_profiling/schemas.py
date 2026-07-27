@@ -11,7 +11,7 @@ class ErrorInfo(BaseModel):
     retryable: bool
 
 
-class FrameworkSkill(BaseModel):
+class Skill(BaseModel):
     name: str
     level: Literal["Beginner", "Mid-level", "Advanced", "Expert"]
     confidence: float
@@ -19,28 +19,9 @@ class FrameworkSkill(BaseModel):
     evidence: str
 
 
-class GeneralSkill(BaseModel):
-    name: Literal[
-        "Clean Code",
-        "Software Design & Architecture",
-        "Code Quality & Maintainability",
-        "Implementation",
-        "Testing Practices",
-    ]
-    level: Literal["Beginner", "Mid-Level", "Advanced", "Expert"]
-    confidence: float
-    explanation: str = Field(description="Human-readable explanation of the level assignment")
-    evidence: list[str] = Field(description="Concrete evidence items that justify the level")
-
-
 class AgentResponse(BaseModel):
     status: Literal["success", "failed"]
-    clean_code: GeneralSkill | None = None
-    software_design_architecture: GeneralSkill | None = None
-    code_quality_maintainability: GeneralSkill | None = None
-    implementation: GeneralSkill | None = None
-    testing_practices: GeneralSkill | None = None
-    framework_skills: list[FrameworkSkill] = Field(default_factory=list)
+    skills: list[Skill] = Field(default_factory=list)
     confidence: float | None = None
     sources: list[Source] = Field(default_factory=list)
     unresolved_repos: list[dict] = Field(default_factory=list)
@@ -48,14 +29,9 @@ class AgentResponse(BaseModel):
 
 
 class SkillProfilingResult(BaseModel):
-    clean_code: GeneralSkill
-    software_design_architecture: GeneralSkill
-    code_quality_maintainability: GeneralSkill
-    implementation: GeneralSkill
-    testing_practices: GeneralSkill
-    framework_skills: list[FrameworkSkill] = Field(
+    skills: list[Skill] = Field(
         default_factory=list,
-        description="Dynamic framework/library skill entries detected across repos",
+        description="Unified list of all detected skills — frameworks, libraries, and general engineering practices",
     )
 
 
