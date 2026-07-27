@@ -4,6 +4,13 @@ FastAPI service for evidence-backed Share-k AI workflows. The NestJS backend
 owns authentication, business state, and final decisions. This service returns
 structured recommendations only.
 
+## Product Documentation
+
+Shared product context, accepted decisions, and sprint plans live in the
+canonical [Share-k Documentation](https://github.com/ITI-Sharek/Documentation)
+repository. See `docs/SHARED-PRODUCT-DOCS.md` for the local workspace path and
+reading order.
+
 ## Local Run
 
 ```bash
