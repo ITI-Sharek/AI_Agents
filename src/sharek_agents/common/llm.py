@@ -22,8 +22,8 @@ def get_llm(model: str | None = None) -> ChatOpenRouter:
         _cache[model] = ChatOpenRouter(
             model=model,
             api_key=settings.openrouter_api_key,
-            base_url=settings.openrouter_base_url,
-            timeout=settings.ai_skill_profile_timeout_seconds,
+            # timeout is in milliseconds; convert from seconds
+            timeout=int(settings.ai_skill_profile_timeout_seconds * 1000),
             temperature=0.0,
         )
     return _cache[model]

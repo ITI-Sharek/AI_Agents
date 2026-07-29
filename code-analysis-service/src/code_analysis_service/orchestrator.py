@@ -5,13 +5,15 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 from .adapters import get_adapter
 from .clone import clone_repo
+from .container_sandbox import check_docker, clone_in_container
 from .graphify_runner import run_graphify
 from .models import (
     AnalysisResult,
+    CloneResult,
     EXTENSIONS,
     GraphRelationsEvidence,
     StaticAnalysisEvidence,
@@ -29,52 +31,37 @@ _DETERMINISTIC_STATUSES = frozenset({
 
 
 def _classify_failure(status: str, error_message: str | None = None) -> str:
-    """Returns 'transient', 'deterministic', or 'success'."""
     if status == "success":
         return "success"
-
     if status in _DETERMINISTIC_STATUSES:
         return "deterministic"
-
     if status == "timeout":
         return "transient"
-
     if status == "clone_failed":
         if error_message and "timed out" in error_message.lower():
             return "transient"
         return "deterministic"
-
     if status == "error":
         return "deterministic"
-
     return "deterministic"
 
 
-async def _attempt_clone(
+async def _clone_repo(
     repo_url: str,
     pat: str | None,
     dest_dir: str,
-    budget: int,
-) -> tuple[bool, float]:
-    start = time.monotonic()
-    clone_result = await clone_repo(
-        repo_url=repo_url,
-        pat=pat,
-        dest_dir=dest_dir,
-        timeout_seconds=budget,
+    timeout_seconds: int,
+    use_container: bool,
+) -> CloneResult:
+    if use_container:
+        return await clone_in_container(
+            repo_url=repo_url, pat=pat, dest_dir=dest_dir,
+            timeout_seconds=timeout_seconds,
+        )
+    return await clone_repo(
+        repo_url=repo_url, pat=pat, dest_dir=dest_dir,
+        timeout_seconds=timeout_seconds,
     )
-    elapsed = time.monotonic() - start
-
-    if clone_result.status == "success":
-        logger.info("clone succeeded in %.1fs", elapsed)
-        return True, elapsed
-
-    cat = _classify_failure(clone_result.status, clone_result.error_message)
-    logger.info(
-        "clone status=%s category=%s elapsed=%.1fs",
-        clone_result.status, cat, elapsed,
-    )
-    return False, elapsed
 
 
 async def _run_static_analysis(
@@ -151,15 +138,15 @@ async def analyze_repo(
     result = AnalysisResult()
     remaining = set(requested_tools)
 
-    # --- FIRST ATTEMPT: 90s budget ---
+    use_container = check_docker()
+    if use_container:
+        logger.info("Docker available — using container sandbox for isolation")
+
     first_dir = tempfile.mkdtemp(prefix="code-analysis-attempt1-")
     try:
         start = time.monotonic()
-        clone_result = await clone_repo(
-            repo_url=repo_url,
-            pat=pat,
-            dest_dir=first_dir,
-            timeout_seconds=90,
+        clone_result = await _clone_repo(
+            repo_url, pat, first_dir, 90, use_container,
         )
         elapsed = time.monotonic() - start
 
@@ -169,7 +156,6 @@ async def analyze_repo(
                 tool_budget = max(10, 90 - int(elapsed))
                 evidence = await _run_tool(tool, language, first_dir, tool_budget)
                 cat = _classify_failure(evidence.status, getattr(evidence, "error_message", None))
-
                 if cat == "success":
                     logger.info("first attempt: %s succeeded", tool)
                     _set_result(result, tool, evidence)
@@ -193,16 +179,13 @@ async def analyze_repo(
                 clone_result.status, cat, elapsed,
             )
             if cat == "deterministic":
-                logger.info(
-                    "deterministic clone failure — no retry for any tool"
-                )
+                logger.info("deterministic clone failure — no retry for any tool")
                 for tool in remaining:
                     _set_result(
                         result, tool,
                         _clone_to_evidence(tool, language, clone_result.status),
                     )
                 return result
-            # transient clone failure -> tools will retry
             logger.info("transient clone failure — will retry all tools")
     finally:
         shutil.rmtree(first_dir, ignore_errors=True)
@@ -210,18 +193,22 @@ async def analyze_repo(
     if not remaining:
         return result
 
-    # --- SECOND ATTEMPT: 180s budget (retry only) ---
     logger.info("retrying %d tool(s) with 180s budget", len(remaining))
     second_dir = tempfile.mkdtemp(prefix="code-analysis-attempt2-")
     try:
-        clone_ok, elapsed = await _attempt_clone(repo_url, pat, second_dir, 180)
+        start = time.monotonic()
+        clone_result = await _clone_repo(
+            repo_url, pat, second_dir, 180, use_container,
+        )
+        elapsed = time.monotonic() - start
+
+        if clone_result.status != "success":
+            logger.warning("retry: clone failed — exhausted for all tools")
+            for tool in remaining:
+                _set_result(result, tool, _exhausted_evidence(tool, language))
+            return result
 
         for tool in list(remaining):
-            if not clone_ok:
-                logger.warning("retry: %s — clone failed, exhausted", tool)
-                _set_result(result, tool, _exhausted_evidence(tool, language))
-                continue
-
             tool_budget = max(10, 180 - int(elapsed))
             evidence = await _run_tool(tool, language, second_dir, tool_budget)
 

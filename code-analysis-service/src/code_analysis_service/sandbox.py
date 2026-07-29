@@ -1,3 +1,11 @@
+"""DEPRECATED: Use container_sandbox.py instead.
+
+This module relied on RLIMIT + CLONE_NEWNET which (a) were never wired
+into orchestrator.py, (b) do not reliably constrain child processes on
+modern Linux, and (c) require CAP_SYS_ADMIN for unshare(). The
+container_sandbox module provides genuine isolation via Docker.
+"""
+
 from __future__ import annotations
 
 import os
