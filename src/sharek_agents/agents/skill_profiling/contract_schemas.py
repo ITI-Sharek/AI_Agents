@@ -20,7 +20,7 @@ class ContractModel(BaseModel):
 
 
 class RepositoryAuthorship(ContractModel):
-    github_login: str = Field(min_length=1)
+    github_login: str = Field(default="")
     repository_owned: bool
     recent_commit_count: int = Field(ge=0)
     total_commits: int = Field(ge=0)
@@ -108,10 +108,10 @@ class RepositoryEvidenceCapsule(ContractModel):
 
 class SkillProfileInput(ContractModel):
     contributor_id: str = Field(min_length=1)
-    github_login: str = Field(min_length=1)
+    github_login: str = Field(default="")
     generation_id: str = Field(min_length=1)
     requested_at: datetime
-    role: Literal["contributor", "owner"]
+    role: Literal["contributor", "owner"] = "contributor"
     # This PAT is request-scoped only. It must never be persisted to any
     # database or cache, and its lifetime is bounded to a single clone
     # operation performed by the analysis service. It is not a long-lived

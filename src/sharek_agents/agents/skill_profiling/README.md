@@ -7,7 +7,8 @@ Profiles GitHub repositories by analyzing code quality, frameworks, architecture
 The NestJS worker uses `POST /skill-profiles/generate`. This endpoint accepts
 backend-selected repository evidence capsules, analyzes only that supplied
 evidence, and returns camel-cased skill candidates with audit/version metadata.
-It does not crawl the submitted repository URLs.
+It does not crawl the submitted repository URLs. Contributor generation sends
+`role: "contributor"` explicitly; omitted legacy roles default to contributor.
 
 Generation requires a shared bearer token of at least 32 characters:
 

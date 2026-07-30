@@ -33,6 +33,11 @@ contributor-specific authorship signals. Generated skills must cite exact
 `evidenceId` values from the request; unmatched citations are discarded and the
 NestJS adapter validates them again.
 
+NestJS sends `role: "contributor"` for contributor profile generation. The
+schema defaults omitted legacy roles to `contributor`; an unavailable GitHub
+login remains valid evidence of missing attribution rather than causing HTTP
+422.
+
 Repository-wide languages, stars, or commits are not treated as contributor
 authorship. Missing attributable activity produces weak evidence and a
 `needs_more_evidence` recommendation.
