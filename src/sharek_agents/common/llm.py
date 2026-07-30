@@ -1,10 +1,13 @@
 """LLM instance management with multi-model caching."""
 
+from langchain_openai import ChatOpenAI
 from langchain_openrouter import ChatOpenRouter
 
 from sharek_agents.config import settings
 
 _cache: dict[str, ChatOpenRouter] = {}
+
+_doc_understanding_cache: dict[str, ChatOpenAI] = {}
 
 
 def get_llm(model: str | None = None) -> ChatOpenRouter:
@@ -29,9 +32,40 @@ def get_llm(model: str | None = None) -> ChatOpenRouter:
     return _cache[model]
 
 
+def get_doc_understanding_llm() -> ChatOpenAI:
+    """Get a cached LLM instance for the Documentation Understanding Agent.
+
+    Reads provider, model, base URL, and API key from the
+    ``doc_understanding_llm_*`` settings, keeping the ReAct Agent
+    provider-configurable.
+
+    Returns:
+        A ChatOpenAI instance configured for the Documentation Understanding
+        provider (e.g. Moonshot AI).
+    """
+    provider = settings.doc_understanding_llm_provider
+    model = settings.doc_understanding_llm_model
+    base_url = settings.doc_understanding_llm_base_url
+    api_key = settings.doc_understanding_llm_api_key
+
+    cache_key = f"{provider}:{model}:{base_url}"
+    if cache_key not in _doc_understanding_cache:
+        api_key_value = api_key if api_key else ""
+
+        _doc_understanding_cache[cache_key] = ChatOpenAI(
+            model=model,
+            api_key=api_key_value,
+            base_url=base_url,
+            timeout=int(settings.doc_understanding_timeout_seconds * 1000),
+            temperature=0.0,
+        )
+    return _doc_understanding_cache[cache_key]
+
+
 def clear_cache() -> None:
     """Clear the LLM instance cache. Useful for testing."""
     _cache.clear()
+    _doc_understanding_cache.clear()
 
 '''
 

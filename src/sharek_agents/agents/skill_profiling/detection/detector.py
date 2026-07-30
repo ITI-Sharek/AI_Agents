@@ -82,8 +82,7 @@ def _match_frameworks(packages: set[str]) -> dict[str, list[str]]:
     for pkg in packages:
         entries = match_by_dependency_package(pkg)
         for entry in entries:
-            if entry.category == "framework":
-                _add_to_result(result, entry.name)
+            _add_to_result(result, entry.name)
     return result
 
 

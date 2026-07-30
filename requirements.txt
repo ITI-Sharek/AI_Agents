@@ -6,9 +6,12 @@ uvicorn
 PyGithub
 langchain
 langchain-community
+langchain-openai
 langchain-openrouter
 langchain-anthropic
 langgraph
 python-dotenv
 radon 
 pylint
+pypdf
+python-docx

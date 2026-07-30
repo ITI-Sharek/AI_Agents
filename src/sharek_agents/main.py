@@ -10,6 +10,13 @@ from sharek_agents.agents.skill_profiling.contract_service import (
     SkillProfileProviderTimeout,
     generate_skill_profile,
 )
+from sharek_agents.agents.document_understanding.endpoint import (
+    analyze_document as doc_understanding_analyze,
+)
+from sharek_agents.agents.document_understanding.schemas import (
+    DocumentUnderstandingInput,
+    DocumentUnderstandingResult,
+)
 from sharek_agents.agents.skill_profiling.router import profile_repos
 from sharek_agents.agents.skill_profiling.schemas import AgentResponse
 from sharek_agents.common.logging import get_logger
@@ -55,6 +62,21 @@ async def generate_skill_profile_endpoint(body: SkillProfileInput):
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Skill-profile provider returned an invalid response",
         ) from exc
+
+
+@app.post(
+    "/document-understanding/analyze",
+    response_model=DocumentUnderstandingResult,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Document processing or provider error"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def document_understanding_endpoint(body: DocumentUnderstandingInput):
+    return await doc_understanding_analyze(body)
 
 
 @app.get("/health")
