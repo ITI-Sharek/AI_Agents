@@ -10,6 +10,13 @@ from sharek_agents.agents.skill_profiling.contract_service import (
     SkillProfileProviderTimeout,
     generate_skill_profile,
 )
+from sharek_agents.agents.advisory_fit.endpoint import (
+    analyze_advisory_fit,
+)
+from sharek_agents.agents.advisory_fit.schemas import (
+    AdvisoryFitInput,
+    AdvisoryFitResult,
+)
 from sharek_agents.agents.document_understanding.endpoint import (
     analyze_document as doc_understanding_analyze,
 )
@@ -77,6 +84,21 @@ async def generate_skill_profile_endpoint(body: SkillProfileInput):
 )
 async def document_understanding_endpoint(body: DocumentUnderstandingInput):
     return await doc_understanding_analyze(body)
+
+
+@app.post(
+    "/advisory-fit/analyze",
+    response_model=AdvisoryFitResult,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Advisory Fit provider returned an invalid response"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Advisory Fit provider timed out"},
+    },
+)
+async def advisory_fit_endpoint(body: AdvisoryFitInput):
+    return await analyze_advisory_fit(body)
 
 
 @app.get("/health")
