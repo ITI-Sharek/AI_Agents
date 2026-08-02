@@ -2,191 +2,241 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+import time
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable
 
-from langchain_core.prompts import ChatPromptTemplate
+import httpx
 from pydantic import ValidationError
 
-from sharek_agents.agents.advisory_fit.prompts import HUMAN_PROMPT, SYSTEM_PROMPT
+from sharek_agents.agents.advisory_fit.prompts import render_advisory_fit_prompt
 from sharek_agents.agents.advisory_fit.schemas import (
-    AdvisoryFitAIOutput,
     AdvisoryFitInput,
+    AdvisoryFitMetadata,
+    AdvisoryFitProviderOutput,
     AdvisoryFitResult,
-    Assessment,
-    RequirementAnalysis,
-    SkillItem,
 )
-from sharek_agents.agents.advisory_fit.scoring import (
-    calculate_fit_percentage,
-    calculate_level_match,
-)
-from sharek_agents.common.llm import get_llm
 from sharek_agents.config import settings
 
 
-logger = logging.getLogger(__name__)
-
-PROMPT_VERSION = "advisory-fit-v2"
-SCHEMA_VERSION = "advisory-fit-result-v1"
+PROMPT_VERSION = "advisory-fit-v1"
+SCHEMA_VERSION = "advisory-fit-v1"
 
 
 class AdvisoryFitProviderError(Exception):
-    pass
+    """A provider response cannot be accepted as a valid assessment."""
 
 
 class AdvisoryFitProviderTimeout(AdvisoryFitProviderError):
-    pass
+    """The provider exceeded the bounded assessment timeout."""
 
 
-def _build_contributor_level_map(
-    skills: list[SkillItem],
-) -> dict[str, str]:
-    return {s.skill.casefold(): s.level for s in skills}
+class AdvisoryFitProviderSystemLimit(AdvisoryFitProviderError):
+    """The provider or configured service limit prevented an attempt."""
 
 
-def _build_assessment(
-    required: SkillItem,
-    analysis: RequirementAnalysis,
-    contributor_level_map: dict[str, str],
-) -> Assessment:
-    contributor_level = contributor_level_map.get(required.skill.casefold())
-    level_match = calculate_level_match(required.level, contributor_level)
-    skill_match = analysis.skill_match
-    if (
-        skill_match == "MATCHED"
-        and required.skill.casefold() not in contributor_level_map
-    ):
-        skill_match = "NOT_EVIDENCED"
-    return Assessment(
-        skill=required.skill,
-        required_level=required.level,
-        contributor_level=contributor_level,
-        skill_match=skill_match,
-        level_match=level_match,
-        approach_relevance=analysis.approach_relevance,
-        explanation=analysis.explanation,
+@dataclass(frozen=True)
+class AdvisoryFitProviderResponse:
+    output: AdvisoryFitProviderOutput
+    provider: str
+    model: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+Provider = Callable[
+    [AdvisoryFitInput],
+    Awaitable[AdvisoryFitProviderOutput | AdvisoryFitProviderResponse],
+]
+
+
+async def _invoke_with_retries(
+    provider: Provider,
+    input_data: AdvisoryFitInput,
+) -> AdvisoryFitProviderOutput | AdvisoryFitProviderResponse:
+    max_retries = max(0, settings.ai_advisory_fit_max_retries)
+    for attempt in range(max_retries + 1):
+        try:
+            return await provider(input_data)
+        except AdvisoryFitProviderSystemLimit:
+            raise
+        except (AdvisoryFitProviderTimeout, AdvisoryFitProviderError):
+            if attempt >= max_retries:
+                raise
+
+    raise AssertionError("bounded provider retry loop did not return or raise")
+
+
+async def _invoke_provider(
+    input_data: AdvisoryFitInput,
+) -> AdvisoryFitProviderResponse:
+    from sharek_agents.common.llm import get_llm
+
+    prompt = render_advisory_fit_prompt(input_data)
+
+    try:
+        raw = await asyncio.wait_for(
+            asyncio.to_thread(get_llm().invoke, prompt),
+            timeout=settings.ai_skill_profile_timeout_seconds,
+        )
+    except asyncio.TimeoutError as exc:
+        raise AdvisoryFitProviderTimeout(
+            "Advisory Fit provider timed out"
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in {402, 429}:
+            raise AdvisoryFitProviderSystemLimit(
+                "Advisory Fit provider system limit is active"
+            ) from exc
+        raise AdvisoryFitProviderError("Advisory Fit provider failed") from exc
+    except Exception as exc:
+        raise AdvisoryFitProviderError("Advisory Fit provider failed") from exc
+
+    try:
+        output = _parse_provider_output(raw)
+    except (TypeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+        raise AdvisoryFitProviderError(
+            "Advisory Fit provider returned invalid output"
+        ) from exc
+
+    # The gateway does not currently expose token counts. Latency is measured
+    # locally and persisted by NestJS as safe technical metadata.
+    return AdvisoryFitProviderResponse(
+        output=output,
+        provider="student-api-gateway",
+        model=settings.getaway_model,
     )
 
 
-def _validate_ai_coverage(
-    ai_output: AdvisoryFitAIOutput,
+def _parse_provider_output(raw: Any) -> AdvisoryFitProviderOutput:
+    if isinstance(raw, AdvisoryFitProviderOutput):
+        return raw
+    if isinstance(raw, dict):
+        return AdvisoryFitProviderOutput.model_validate(raw)
+
+    content = getattr(raw, "content", raw)
+    if not isinstance(content, str):
+        raise TypeError("provider output must be JSON text")
+
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    return AdvisoryFitProviderOutput.model_validate(json.loads(text))
+
+
+def _validate_provider_coverage(
+    output: AdvisoryFitProviderOutput,
     input_data: AdvisoryFitInput,
 ) -> None:
-    input_skills = {r.skill.casefold() for r in input_data.project_requirements}
-    ai_skills = {a.skill.casefold() for a in ai_output.assessments}
+    requirements = {item.id: item.kind for item in input_data.requirements}
+    findings = output.findings
+    finding_ids = [finding.requirement_id for finding in findings]
 
-    if ai_skills != input_skills:
-        missing = input_skills - ai_skills
-        extra = ai_skills - input_skills
-        parts: list[str] = []
-        if missing:
-            parts.append(f"missing requirements: {sorted(missing)}")
-        if extra:
-            parts.append(f"unexpected requirements: {sorted(extra)}")
+    if len(findings) != len(requirements) or set(finding_ids) != set(requirements):
         raise AdvisoryFitProviderError(
-            f"AI analysis does not match input requirements; {'; '.join(parts)}"
+            "AI findings must cover each Requirement exactly once"
+        )
+    if len(finding_ids) != len(set(finding_ids)):
+        raise AdvisoryFitProviderError(
+            "AI findings must not contain duplicate Requirements"
         )
 
+    allowed_evidence_ids = set(input_data.allowed_evidence_ids)
+    for finding in findings:
+        if finding.requirement_kind != requirements[finding.requirement_id]:
+            raise AdvisoryFitProviderError(
+                "AI finding Requirement classification does not match the snapshot"
+            )
+        if any(citation not in allowed_evidence_ids for citation in finding.citations):
+            raise AdvisoryFitProviderError(
+                "AI finding contains a citation outside the allowed evidence scope"
+            )
 
-async def _invoke_analysis_llm(
-    input_data: AdvisoryFitInput,
-) -> AdvisoryFitAIOutput:
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", SYSTEM_PROMPT),
-            ("human", HUMAN_PROMPT),
-        ]
-    )
 
-    structured = get_llm().with_structured_output(AdvisoryFitAIOutput)
-    result = await asyncio.wait_for(
-        (prompt | structured).ainvoke(
-            {
-                "project_requirements": json.dumps(
-                    [
-                        {"skill": r.skill, "level": r.level}
-                        for r in input_data.project_requirements
-                    ],
-                    indent=2,
-                ),
-                "contributor_skills": json.dumps(
-                    [
-                        {"skill": s.skill, "level": s.level}
-                        for s in input_data.contributor_skills
-                    ],
-                    indent=2,
-                ),
-                "contributor_approach": input_data.contributor_approach,
-            }
-        ),
-        timeout=settings.ai_skill_profile_timeout_seconds,
+def _coerce_provider_response(
+    response: AdvisoryFitProviderOutput | AdvisoryFitProviderResponse,
+) -> AdvisoryFitProviderResponse:
+    if isinstance(response, AdvisoryFitProviderResponse):
+        output = response.output
+        if not isinstance(output, AdvisoryFitProviderOutput):
+            output = AdvisoryFitProviderOutput.model_validate(output)
+        return AdvisoryFitProviderResponse(
+            output=output,
+            provider=response.provider,
+            model=response.model,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
+    if not isinstance(response, AdvisoryFitProviderOutput):
+        response = AdvisoryFitProviderOutput.model_validate(response)
+    return AdvisoryFitProviderResponse(
+        output=response,
+        provider="deterministic-fake",
+        model="deterministic-fake",
     )
-    return AdvisoryFitAIOutput.model_validate(result)
 
 
 async def generate_advisory_fit(
     input_data: AdvisoryFitInput,
+    *,
+    provider: Provider | None = None,
 ) -> AdvisoryFitResult:
-    logger.info(
-        "Starting Advisory Fit analysis: %d requirements, %d contributor skills",
-        len(input_data.project_requirements),
-        len(input_data.contributor_skills),
-    )
+    """Run one bounded evidence-backed Advisory Fit analysis.
 
-    contributor_level_map = _build_contributor_level_map(
-        input_data.contributor_skills
-    )
+    The optional provider seam is used by deterministic contract tests. The
+    HTTP endpoint uses the configured Student API Gateway provider by default.
+    """
+    if not input_data.allowed_evidence_ids:
+        return AdvisoryFitResult(status="NOT_STARTED_NO_ASSESSABLE_EVIDENCE")
 
+    started_at = time.perf_counter()
     try:
-        ai_output = await _invoke_analysis_llm(input_data)
+        response = _coerce_provider_response(
+            await _invoke_with_retries(provider or _invoke_provider, input_data)
+        )
+    except AdvisoryFitProviderSystemLimit:
+        return AdvisoryFitResult(status="NOT_STARTED_SYSTEM_LIMIT")
+    except AdvisoryFitProviderTimeout:
+        raise
+    except AdvisoryFitProviderError:
+        raise
     except asyncio.TimeoutError as exc:
         raise AdvisoryFitProviderTimeout(
             "Advisory Fit provider timed out"
         ) from exc
     except ValidationError as exc:
         raise AdvisoryFitProviderError(
-            f"Advisory Fit provider returned invalid output: {exc}"
+            "Advisory Fit provider returned invalid output"
         ) from exc
     except Exception as exc:
+        raise AdvisoryFitProviderError("Advisory Fit provider failed") from exc
+
+    try:
+        _validate_provider_coverage(response.output, input_data)
+        latency_ms = max(0, round((time.perf_counter() - started_at) * 1000))
+        metadata = AdvisoryFitMetadata(
+            provider=response.provider,
+            model=response.model,
+            promptVersion=PROMPT_VERSION,
+            schemaVersion=SCHEMA_VERSION,
+            serviceVersion=settings.service_version,
+            latencyMs=latency_ms,
+            inputTokens=response.input_tokens,
+            outputTokens=response.output_tokens,
+        )
+    except AdvisoryFitProviderError:
+        raise
+    except ValidationError as exc:
         raise AdvisoryFitProviderError(
-            f"Advisory Fit provider failed: {exc}"
+            "Advisory Fit provider returned invalid metadata"
         ) from exc
-
-    _validate_ai_coverage(ai_output, input_data)
-
-    ai_by_skill: dict[str, RequirementAnalysis] = {}
-    for analysis in ai_output.assessments:
-        ai_by_skill[analysis.skill.casefold()] = analysis
-
-    assessments = [
-        _build_assessment(req, ai_by_skill[req.skill.casefold()], contributor_level_map)
-        for req in input_data.project_requirements
-    ]
-
-    fit_percentage = calculate_fit_percentage(assessments)
-
-    total_requirements = len(assessments)
-    matched = sum(
-        1 for a in assessments if a.skill_match == "MATCHED"
-    )
-    exact_levels = sum(
-        1 for a in assessments if a.level_match == "EXACT"
-    )
-    summary = (
-        f"Advisory Fit assessment for {total_requirements} project "
-        f"requirements: {matched} skills matched, {exact_levels} exact level "
-        f"matches, fit percentage {fit_percentage}%."
-    )
-
-    logger.info(
-        "Advisory Fit complete: fit_percentage=%.2f, requirements=%d, matched=%d",
-        fit_percentage,
-        total_requirements,
-        matched,
-    )
-
     return AdvisoryFitResult(
-        fit_percentage=fit_percentage,
-        assessments=assessments,
-        summary=summary,
+        status="COMPLETED",
+        findings=response.output.findings,
+        metadata=metadata,
     )

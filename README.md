@@ -15,15 +15,34 @@ reading order.
 
 ```bash
 python3 -m pip install -r requirements.txt
-export GROQ_API_KEY="your-rotated-groq-key"
 export AI_SERVICE_AUTH_TOKEN="a-long-random-internal-token"
-export LLM_PROVIDER="groq"
-export LLM_MODEL="openai/gpt-oss-120b"
+export GETAWAY_ITI_KEY="your-student-gateway-key"
+export GETAWAY_BASE_URL="http://apiaccess.iti.net.eg"
+export GETAWAY_MODEL="antropic.claude-sonnet-4.6"
+export AI_ADVISORY_FIT_MAX_RETRIES="1"
 PYTHONPATH=src uvicorn sharek_agents.main:app --reload --port 8010
 ```
 
 Configure the NestJS backend with the same `AI_SERVICE_AUTH_TOKEN` and with
 `AI_SERVICE_URL=http://localhost:8010`.
+
+## Advisory Fit Contract
+
+`POST /advisory-fit/assess` is an internal, bearer-authenticated endpoint. It
+accepts the backend's immutable Requirement and authorized Evidence Snapshots:
+`assessmentRequestId`, `requirements`, `evidence`, `allowedEvidenceIds`,
+`requestedAt`, and `contractVersion: "advisory-fit-v1"`.
+
+Completed responses contain exactly one finding per Requirement. Findings use
+`SUPPORTED`, `PARTIALLY_SUPPORTED`, `NOT_EVIDENCED`, or `INCONCLUSIVE`, with
+categorical confidence, allowed evidence citations, uncertainty, and a concise
+explanation. Technical metadata is returned under `metadata`.
+
+The AI service never returns a score, Fit Band, eligibility result, ranking,
+recommendation, Application status, or owner decision. NestJS validates the
+findings and derives the Fit Band. Empty `allowedEvidenceIds` returns
+`NOT_STARTED_NO_ASSESSABLE_EVIDENCE` without a provider call; a configured
+provider/system safeguard may return `NOT_STARTED_SYSTEM_LIMIT`.
 
 ## Skill Profiling Contract
 

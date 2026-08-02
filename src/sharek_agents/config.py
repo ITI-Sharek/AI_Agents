@@ -34,6 +34,11 @@ class Settings:
             os.environ.get("AI_SKILL_PROFILE_TIMEOUT_SECONDS", "60")
         )
     )
+    ai_advisory_fit_max_retries: int = field(
+        default_factory=lambda: int(
+            os.environ.get("AI_ADVISORY_FIT_MAX_RETRIES", "1")
+        )
+    )
     service_version: str = field(
         default_factory=lambda: os.environ.get("AI_SERVICE_VERSION", "0.1.0")
     )

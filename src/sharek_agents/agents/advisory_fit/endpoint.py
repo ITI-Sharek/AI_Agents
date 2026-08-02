@@ -23,13 +23,13 @@ async def analyze_advisory_fit(
     try:
         return await generate_advisory_fit(body)
     except AdvisoryFitProviderTimeout as exc:
-        logger.warning("Advisory Fit provider timed out: %s", exc)
+        logger.warning("Advisory Fit provider timed out")
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="Advisory Fit provider timed out",
         ) from exc
     except AdvisoryFitProviderError as exc:
-        logger.warning("Advisory Fit provider error: %s", exc)
+        logger.warning("Advisory Fit provider returned invalid output")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Advisory Fit provider returned an invalid response",

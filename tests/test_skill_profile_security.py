@@ -1,7 +1,7 @@
 import asyncio
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from sharek_agents.agents.skill_profiling import contract_service
 from sharek_agents.agents.skill_profiling.contract_schemas import (
@@ -20,6 +20,18 @@ from sharek_agents.agents.skill_profiling.contract_service import (
     generate_skill_profile,
 )
 from sharek_agents.main import app
+
+
+def post_json(path: str, *, headers: dict[str, str] | None = None, json=None):
+    async def request():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            return await client.post(path, headers=headers, json=json)
+
+    return asyncio.run(request())
 
 
 def make_repository(
@@ -76,7 +88,7 @@ def test_internal_endpoint_rejects_missing_credentials(monkeypatch) -> None:
         "internal-test-token-that-is-long-enough",
     )
 
-    response = TestClient(app).post("/skill-profiles/generate", json={})
+    response = post_json("/skill-profiles/generate", json={})
 
     assert response.status_code == 401
 
@@ -108,7 +120,7 @@ def test_internal_endpoint_accepts_the_nestjs_contributor_contract(
         generated_profile,
     )
 
-    response = TestClient(app).post(
+    response = post_json(
         "/skill-profiles/generate",
         headers={"Authorization": f"Bearer {token}"},
         json=make_request(make_repository()).model_dump(

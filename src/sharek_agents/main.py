@@ -87,7 +87,7 @@ async def document_understanding_endpoint(body: DocumentUnderstandingInput):
 
 
 @app.post(
-    "/advisory-fit/analyze",
+    "/advisory-fit/assess",
     response_model=AdvisoryFitResult,
     dependencies=[Depends(require_service_token)],
     responses={
