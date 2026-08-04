@@ -3,7 +3,6 @@ import json
 import logging
 from typing import Any
 
-from langchain_core.prompts import ChatPromptTemplate
 from pydantic import ValidationError
 
 from sharek_agents.agents.skill_profiling.contract_schemas import (
@@ -23,7 +22,7 @@ from sharek_agents.agents.skill_profiling.detection import (
 from sharek_agents.agents.skill_profiling.analysis_client import (
     run_step2_analysis as _run_step2_analysis,
 )
-from sharek_agents.common.llm import get_llm
+from sharek_agents.common.llm import generate_structured, get_provider_metadata
 from sharek_agents.config import settings
 from sharek_agents.shared_tools.github_client import GithubClient
 
@@ -388,15 +387,11 @@ async def _invoke_model(
     system_prompt: str,
     evidence: str,
 ) -> ModelSkillProfileAnalysis:
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system_prompt),
-            ("human", "Analyze these evidence capsules:\n\n{evidence}"),
-        ]
+    return await generate_structured(
+        system_prompt=system_prompt,
+        user_prompt=f"Analyze these evidence capsules:\n\n{evidence}",
+        response_model=ModelSkillProfileAnalysis,
     )
-    structured = get_llm().with_structured_output(ModelSkillProfileAnalysis)
-    result = await (prompt | structured).ainvoke({"evidence": evidence})
-    return ModelSkillProfileAnalysis.model_validate(result)
 
 
 def _validate_model_citations(
@@ -447,17 +442,25 @@ def _merge_fraud_signals(
 
 
 def _check_no_analyzable_evidence(request: SkillProfileInput) -> bool:
-    """Guardrail: if Step 1 AND Step 2 produced entirely empty evidence
-    for EVERY repository, return True to fail-fast with a clear error.
+    """Return True only when every authorized evidence source is empty.
 
-    Runs AFTER both Step 1 (unconditionally) and Step 2 (conditionally,
-    per-repo) evidence has been captured on the capsule. Reads from the
-    capsule directly — no separate parameter needed.
-
-    This guardrail checks both evidence sources independently: Step 1's
-    presence alone is sufficient to pass. Step 2's absence never causes
-    a false positive."""
+    NestJS supplies a bounded repository snapshot before optional framework,
+    static, and graph enrichment runs. Private repositories can have valid
+    snapshot evidence even when clone-based enrichment is unavailable, so the
+    guardrail must consider each source independently.
+    """
     for capsule in request.selected_repositories:
+        has_snapshot = bool(
+            capsule.primary_language
+            or capsule.languages
+            or capsule.technologies
+            or capsule.statistics
+            or capsule.readme_excerpt
+            or capsule.description
+            or capsule.topics
+            or capsule.contribution_activity
+            or capsule.commit_signals
+        )
         has_frameworks = (
             capsule.framework_detection is not None
             and bool(capsule.framework_detection.frameworks_detected)
@@ -470,7 +473,7 @@ def _check_no_analyzable_evidence(request: SkillProfileInput) -> bool:
             capsule.graph_relations is not None
             and capsule.graph_relations.status == "success"
         )
-        if has_frameworks or has_static or has_graph:
+        if has_snapshot or has_frameworks or has_static or has_graph:
             return False
     return True
 
@@ -518,8 +521,8 @@ async def generate_skill_profile(request: SkillProfileInput) -> SkillProfileResu
     #     Step 2 is even started. They are sequential, not parallel.
     #   - Step 2's success or failure NEVER affects whether Step 1's
     #     result is included in the final evidence sent to the LLM.
-    #   - The guardrail (_check_no_analyzable_evidence) checks both
-    #     sources independently: Step 1's presence alone is sufficient.
+    #   - The guardrail (_check_no_analyzable_evidence) checks the authorized
+    #     NestJS snapshot and both enrichment sources independently.
     #   - github_pat is scoped to a single per-repo HTTP call; the
     #     Python variable `request.github_pat` is used only to pass it
     #     in the JSON body and is never stored elsewhere.
@@ -618,6 +621,7 @@ async def generate_skill_profile(request: SkillProfileInput) -> SkillProfileResu
         request.selected_repositories, request.role
     )
     deterministic_signals = _deterministic_fraud_signals(request)
+    provider, model = get_provider_metadata()
 
     if evidence_quality == "weak":
         return SkillProfileResult(
@@ -625,8 +629,8 @@ async def generate_skill_profile(request: SkillProfileInput) -> SkillProfileResu
             fraud_signals=deterministic_signals,
             evidence_quality="weak",
             recommendation="needs_more_evidence",
-            provider=settings.ai_provider,
-            model=settings.default_model,
+            provider=provider,
+            model=model,
             prompt_version=PROMPT_VERSION,
             schema_version=SCHEMA_VERSION,
             service_version=settings.service_version,
@@ -646,8 +650,8 @@ async def generate_skill_profile(request: SkillProfileInput) -> SkillProfileResu
     evidence = _build_evidence_bundle(request)
 
     # ── Guardrail ────────────────────────────────────────────────────────
-    # Fails fast only when BOTH Step 1 AND Step 2 produced zero evidence
-    # for EVERY repository. Step 1's presence alone is sufficient to pass.
+    # Fail fast only when the authorized NestJS snapshot, Step 1, and Step 2
+    # all contain zero usable evidence for every repository.
     if _check_no_analyzable_evidence(request):
         raise SkillProfileProviderError("no_analyzable_evidence")
 
@@ -710,8 +714,8 @@ async def generate_skill_profile(request: SkillProfileInput) -> SkillProfileResu
             ),
             evidence_quality=evidence_quality,
             recommendation="pending_review",
-            provider=settings.ai_provider,
-            model=settings.default_model,
+            provider=provider,
+            model=model,
             prompt_version=PROMPT_VERSION,
             schema_version=SCHEMA_VERSION,
             service_version=settings.service_version,

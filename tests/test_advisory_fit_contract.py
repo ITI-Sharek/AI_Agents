@@ -181,7 +181,7 @@ def test_maps_gateway_rate_limits_to_system_limit(monkeypatch) -> None:
     response = httpx.Response(429, request=request)
 
     class LimitedGateway:
-        def invoke(self, _prompt: str) -> str:
+        async def generate_structured(self, **_kwargs):
             raise httpx.HTTPStatusError(
                 "rate limited",
                 request=request,
@@ -193,18 +193,51 @@ def test_maps_gateway_rate_limits_to_system_limit(monkeypatch) -> None:
         lambda: LimitedGateway(),
     )
 
-    async def run_without_a_worker_thread(fn, *args):
-        return fn(*args)
-
-    monkeypatch.setattr(
-        "sharek_agents.agents.advisory_fit.service.asyncio.to_thread",
-        run_without_a_worker_thread,
-    )
-
     request_data = AdvisoryFitInput.model_validate(assessment_request_payload())
 
     with pytest.raises(AdvisoryFitProviderSystemLimit):
         asyncio.run(_invoke_provider(request_data))
+
+
+def test_default_provider_uses_the_strict_output_schema_and_truthful_metadata(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class StrictProvider:
+        def invoke(self, _prompt: str):
+            raise AssertionError("plain-text generation must not be used")
+
+        async def generate_structured(
+            self,
+            *,
+            system_prompt,
+            user_prompt,
+            response_model,
+        ):
+            captured["system_prompt"] = system_prompt
+            captured["user_prompt"] = user_prompt
+            captured["response_model"] = response_model
+            return completed_provider_output()
+
+    monkeypatch.setattr(
+        "sharek_agents.common.llm.get_llm",
+        lambda: StrictProvider(),
+    )
+    monkeypatch.setattr(
+        "sharek_agents.common.llm.get_provider_metadata",
+        lambda: ("openrouter", "openrouter/free"),
+    )
+
+    request_data = AdvisoryFitInput.model_validate(assessment_request_payload())
+    response = asyncio.run(_invoke_provider(request_data))
+
+    assert captured["response_model"] is AdvisoryFitProviderOutput
+    assert "Return only one JSON object" in str(captured["system_prompt"])
+    assert "ASSESSMENT REQUEST DATA" in str(captured["user_prompt"])
+    assert response.output == completed_provider_output()
+    assert response.provider == "openrouter"
+    assert response.model == "openrouter/free"
 
 
 def test_retries_one_transient_provider_failure(monkeypatch) -> None:

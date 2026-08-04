@@ -161,12 +161,17 @@ Prunes edges to only the repo's source files, caps output at ~2000 tokens.
 
 ## LLM Integration
 
-Uses `ChatOpenRouter` from `langchain-openrouter` (OpenAI-compatible endpoint).
+Uses the provider selected by `AI_PROVIDER`. OpenRouter is the default; the
+Student API Gateway is available as `student-api-gateway`.
 
-| Env Variable         | Default                | Description              |
-|---------------------|------------------------|--------------------------|
-| `OPENROUTER_API_KEY` | —                      | OpenRouter API key       |
-| `OPENROUTER_MODEL`   | `openai/gpt-4o-mini` | Model identifier on OpenRouter |
+| Env Variable          | Default                                      | Description |
+|-----------------------|----------------------------------------------|-------------|
+| `AI_PROVIDER`         | `openrouter`                                 | Active provider |
+| `OPENROUTER_API_KEY`  | —                                            | OpenRouter API key |
+| `OPENROUTER_MODEL`    | `openrouter/free`                            | OpenRouter model/router |
+| `GETAWAY_ITI_KEY`     | —                                            | Student gateway key |
+| `GETAWAY_BASE_URL`    | `http://apiaccess.iti.net.eg`                | Student gateway base URL |
+| `GETAWAY_MODEL`       | `antropic.claude-sonnet-4.6`                 | Student gateway model |
 
 The LLM receives a JSON evidence dict and returns `SkillProfilingResult` (structured output via Pydantic).
 

@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -19,7 +20,29 @@ from sharek_agents.agents.skill_profiling.contract_service import (
     assess_evidence_quality,
     generate_skill_profile,
 )
+from sharek_agents.common.llm import (
+    OpenRouterLLM,
+    StudentGatewayLLM,
+    clear_cache,
+    get_llm,
+)
+from sharek_agents.config import settings
 from sharek_agents.main import app
+
+
+GATEWAY_ANALYSIS = {
+    "skills": [
+        {
+            "name": "TypeScript",
+            "proficiency": "intermediate",
+            "confidence": 0.8,
+            "evidenceIds": ["github:sharek-dev/repo"],
+            "evidenceSummary": "Authored TypeScript changes are present.",
+            "limitations": [],
+        }
+    ],
+    "fraudSignals": [],
+}
 
 
 def post_json(path: str, *, headers: dict[str, str] | None = None, json=None):
@@ -207,3 +230,114 @@ def test_provider_failure_is_retryable_by_the_backend(monkeypatch) -> None:
 
     with pytest.raises(SkillProfileProviderError, match="provider failed"):
         asyncio.run(generate_skill_profile(make_request(make_repository())))
+
+
+def test_student_gateway_returns_validated_structured_output(monkeypatch) -> None:
+    async def post(_client, url, **_kwargs):
+        return httpx.Response(
+            200,
+            json={"output_text": json.dumps(GATEWAY_ANALYSIS)},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    client = StudentGatewayLLM(
+        model="test-model",
+        api_key="test-key",
+        base_url="https://gateway.example",
+    )
+
+    result = asyncio.run(
+        client.generate_structured(
+            system_prompt="Assess repository evidence.",
+            user_prompt="Evidence: TypeScript",
+            response_model=ModelSkillProfileAnalysis,
+        )
+    )
+
+    assert result == ModelSkillProfileAnalysis.model_validate(GATEWAY_ANALYSIS)
+
+
+def test_get_llm_uses_the_configured_openrouter_provider(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "ai_provider", "openrouter")
+    monkeypatch.setattr(settings, "openrouter_api_key", "openrouter-test-key")
+    monkeypatch.setattr(settings, "openrouter_model", "openrouter/test-model")
+    clear_cache()
+
+    client = get_llm()
+
+    assert isinstance(client, OpenRouterLLM)
+    assert client.max_retries == 0
+
+
+def test_openrouter_returns_validated_structured_output(monkeypatch) -> None:
+    async def post(_client, url, **_kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": json.dumps(GATEWAY_ANALYSIS)}}
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    client = OpenRouterLLM(
+        model="openrouter/test-model",
+        api_key="openrouter-test-key",
+    )
+
+    result = asyncio.run(
+        client.generate_structured(
+            system_prompt="Assess repository evidence.",
+            user_prompt="Evidence: TypeScript",
+            response_model=ModelSkillProfileAnalysis,
+        )
+    )
+
+    assert result == ModelSkillProfileAnalysis.model_validate(GATEWAY_ANALYSIS)
+
+
+def test_skill_profile_endpoint_uses_snapshot_when_clone_analysis_is_unavailable(
+    monkeypatch,
+) -> None:
+    original_post = httpx.AsyncClient.post
+
+    async def post(client, url, **kwargs):
+        absolute_url = client.base_url.join(url)
+        if absolute_url.host == "gateway.test":
+            return httpx.Response(
+                200,
+                json={"output_text": json.dumps(GATEWAY_ANALYSIS)},
+                request=httpx.Request("POST", absolute_url),
+            )
+        return await original_post(client, url, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    token = "internal-test-token-that-is-long-enough"
+    monkeypatch.setattr(settings, "ai_service_auth_token", token)
+    monkeypatch.setattr(settings, "analysis_service_enabled", False)
+    monkeypatch.setattr(settings, "ai_provider", "student-api-gateway")
+    monkeypatch.setattr(settings, "getaway_base_url", "https://gateway.test")
+    monkeypatch.setattr(settings, "getaway_iti_key", "gateway-test-key")
+    monkeypatch.setattr(settings, "getaway_model", "gateway-test-model")
+
+    payload = make_request(make_repository()).model_dump(mode="json", by_alias=True)
+    repository = payload["selectedRepositories"][0]
+    repository["fullName"] = "repository"
+    repository["staticAnalysis"] = {
+        "toolUsed": "code-analysis-engine",
+        "status": "tool_unavailable",
+    }
+
+    response = post_json(
+        "/skill-profiles/generate",
+        headers={"Authorization": f"Bearer {token}"},
+        json=payload,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["skills"][0]["name"] == "TypeScript"
+    assert response.json()["provider"] == "student-api-gateway"
+    assert response.json()["model"] == "gateway-test-model"

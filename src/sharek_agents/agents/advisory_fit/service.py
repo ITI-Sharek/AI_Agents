@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Awaitable, Callable
 
 import httpx
 from pydantic import ValidationError
 
-from sharek_agents.agents.advisory_fit.prompts import render_advisory_fit_prompt
+from sharek_agents.agents.advisory_fit.prompts import (
+    SYSTEM_PROMPT,
+    render_advisory_fit_prompt,
+)
 from sharek_agents.agents.advisory_fit.schemas import (
     AdvisoryFitInput,
     AdvisoryFitMetadata,
@@ -70,13 +72,17 @@ async def _invoke_with_retries(
 async def _invoke_provider(
     input_data: AdvisoryFitInput,
 ) -> AdvisoryFitProviderResponse:
-    from sharek_agents.common.llm import get_llm
+    from sharek_agents.common.llm import generate_structured, get_provider_metadata
 
     prompt = render_advisory_fit_prompt(input_data)
 
     try:
-        raw = await asyncio.wait_for(
-            asyncio.to_thread(get_llm().invoke, prompt),
+        output = await asyncio.wait_for(
+            generate_structured(
+                system_prompt=SYSTEM_PROMPT,
+                user_prompt=prompt,
+                response_model=AdvisoryFitProviderOutput,
+            ),
             timeout=settings.ai_skill_profile_timeout_seconds,
         )
     except asyncio.TimeoutError as exc:
@@ -92,41 +98,15 @@ async def _invoke_provider(
     except Exception as exc:
         raise AdvisoryFitProviderError("Advisory Fit provider failed") from exc
 
-    try:
-        output = _parse_provider_output(raw)
-    except (TypeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
-        raise AdvisoryFitProviderError(
-            "Advisory Fit provider returned invalid output"
-        ) from exc
+    provider, model = get_provider_metadata()
 
-    # The gateway does not currently expose token counts. Latency is measured
-    # locally and persisted by NestJS as safe technical metadata.
+    # The configured adapters do not currently expose token counts. Latency is
+    # measured locally and persisted by NestJS as safe technical metadata.
     return AdvisoryFitProviderResponse(
         output=output,
-        provider="student-api-gateway",
-        model=settings.getaway_model,
+        provider=provider,
+        model=model,
     )
-
-
-def _parse_provider_output(raw: Any) -> AdvisoryFitProviderOutput:
-    if isinstance(raw, AdvisoryFitProviderOutput):
-        return raw
-    if isinstance(raw, dict):
-        return AdvisoryFitProviderOutput.model_validate(raw)
-
-    content = getattr(raw, "content", raw)
-    if not isinstance(content, str):
-        raise TypeError("provider output must be JSON text")
-
-    text = content.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    return AdvisoryFitProviderOutput.model_validate(json.loads(text))
 
 
 def _validate_provider_coverage(
@@ -189,7 +169,7 @@ async def generate_advisory_fit(
     """Run one bounded evidence-backed Advisory Fit analysis.
 
     The optional provider seam is used by deterministic contract tests. The
-    HTTP endpoint uses the configured Student API Gateway provider by default.
+    HTTP endpoint uses the provider selected by ``AI_PROVIDER`` by default.
     """
     if not input_data.allowed_evidence_ids:
         return AdvisoryFitResult(status="NOT_STARTED_NO_ASSESSABLE_EVIDENCE")

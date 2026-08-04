@@ -1,35 +1,17 @@
-"""LLM instance management with multi-model caching."""
+"""LLM clients used by the Share-k AI workflows."""
 
+import json
+from typing import TypeVar
+
+import httpx
 from langchain_openai import ChatOpenAI
-from langchain_openrouter import ChatOpenRouter
+from pydantic import BaseModel
 
 from sharek_agents.config import settings
 
-_cache: dict[str, ChatOpenRouter] = {}
-
 _doc_understanding_cache: dict[str, ChatOpenAI] = {}
-
-
-def get_llm(model: str | None = None) -> ChatOpenRouter:
-    """Get a cached LLM instance for the given model.
-
-    Args:
-        model: Model identifier on OpenRouter. If None, uses the default
-               model from settings.
-
-    Returns:
-        A ChatOpenRouter instance configured with the given model.
-    """
-    model = model or settings.openrouter_model
-    if model not in _cache:
-        _cache[model] = ChatOpenRouter(
-            model=model,
-            api_key=settings.openrouter_api_key,
-            # timeout is in milliseconds; convert from seconds
-            timeout=int(settings.ai_skill_profile_timeout_seconds * 1000),
-            temperature=0.0,
-        )
-    return _cache[model]
+_openrouter_cache: dict[str, "OpenRouterLLM"] = {}
+StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 
 
 def get_doc_understanding_llm() -> ChatOpenAI:
@@ -64,19 +46,8 @@ def get_doc_understanding_llm() -> ChatOpenAI:
 
 def clear_cache() -> None:
     """Clear the LLM instance cache. Useful for testing."""
-    _cache.clear()
     _doc_understanding_cache.clear()
-
-'''
-
-
-"""Student API Gateway LLM client."""
-
-"""Student API Gateway LLM client."""
-
-import httpx
-
-from sharek_agents.config import settings
+    _openrouter_cache.clear()
 
 
 class StudentGatewayLLM:
@@ -147,9 +118,185 @@ class StudentGatewayLLM:
 
         return output_text
 
+    async def generate_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_model: type[StructuredModel],
+    ) -> StructuredModel:
+        """Generate and validate one JSON response from the text-only gateway."""
 
-def get_llm(model: str | None = None) -> StudentGatewayLLM:
-    """Get an LLM client configured for the Student API Gateway."""
+        schema = json.dumps(response_model.model_json_schema(by_alias=True))
+        prompt = (
+            f"{system_prompt}\n\n"
+            "Return only valid JSON. Do not wrap it in Markdown or add "
+            "explanatory text. The JSON must match this schema:\n"
+            f"{schema}\n\n"
+            f"{user_prompt}"
+        )
+        url = f"{self.base_url}/api/v1/student/chat"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model_id": self.model,
+            "messages": [{"role": "user", "text": prompt}],
+            "max_tokens": 1000,
+            "temperature": 0.0,
+        }
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(url, headers=headers, json=payload)
+
+        if response.status_code == 401:
+            raise RuntimeError("Invalid Student API Gateway API key.")
+        if response.status_code == 403:
+            raise RuntimeError(
+                "Student API Gateway API key is not authorized "
+                "to access this resource."
+            )
+        response.raise_for_status()
+
+        raw_output = response.json().get("output_text")
+        if not raw_output:
+            raise RuntimeError(
+                "Student API Gateway response is missing output_text."
+            )
+        return response_model.model_validate_json(_strip_json_fence(raw_output))
+
+
+class OpenRouterLLM:
+    """Small OpenRouter client with one explicit request and no hidden retries."""
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        timeout: float = 60.0,
+    ):
+        self.model = model
+        self.api_key = api_key
+        self.timeout = timeout
+        self.max_retries = 0
+        self.url = "https://openrouter.ai/api/v1/chat/completions"
+
+    @property
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def invoke(self, prompt: str) -> str:
+        """Generate plain text for workflows that own their own parser."""
+
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 4000,
+        }
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.post(
+                self.url,
+                headers=self._headers,
+                json=payload,
+            )
+        response.raise_for_status()
+        return _openrouter_content(response.json())
+
+    async def generate_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_model: type[StructuredModel],
+    ) -> StructuredModel:
+        """Request strict JSON Schema output and validate it with Pydantic."""
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.0,
+            "max_tokens": 4000,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": response_model.__name__,
+                    "strict": True,
+                    "schema": response_model.model_json_schema(by_alias=True),
+                },
+            },
+            "provider": {"require_parameters": True},
+        }
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                self.url,
+                headers=self._headers,
+                json=payload,
+            )
+        response.raise_for_status()
+        raw_output = _openrouter_content(response.json())
+        return response_model.model_validate_json(_strip_json_fence(raw_output))
+
+
+def _openrouter_content(payload: dict) -> str:
+    try:
+        content = payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError("OpenRouter response is missing message content") from exc
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("OpenRouter response is missing message content")
+    return content
+
+
+def _strip_json_fence(value: str) -> str:
+    """Accept a JSON code fence defensively while still rejecting prose."""
+
+    text = value.strip()
+    if not text.startswith("```"):
+        return text
+
+    lines = text.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _uses_student_gateway() -> bool:
+    return settings.ai_provider.casefold() in {
+        "student-api-gateway",
+        "student_gateway",
+        "getaway",
+    }
+
+
+def get_llm(model: str | None = None) -> OpenRouterLLM | StudentGatewayLLM:
+    """Return the client selected by ``AI_PROVIDER``."""
+
+    if not _uses_student_gateway():
+        if settings.ai_provider.casefold() != "openrouter":
+            raise RuntimeError(f"Unsupported AI provider: {settings.ai_provider}")
+        if not settings.openrouter_api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is not configured")
+
+        model = model or settings.openrouter_model
+        if model not in _openrouter_cache:
+            _openrouter_cache[model] = OpenRouterLLM(
+                model=model,
+                api_key=settings.openrouter_api_key,
+                timeout=settings.ai_skill_profile_timeout_seconds,
+            )
+        return _openrouter_cache[model]
+
+    if not settings.getaway_iti_key:
+        raise RuntimeError("GETAWAY_ITI_KEY is not configured")
 
     model = model or settings.getaway_model
 
@@ -160,4 +307,25 @@ def get_llm(model: str | None = None) -> StudentGatewayLLM:
         timeout=settings.ai_skill_profile_timeout_seconds,
     )
 
-'''
+
+async def generate_structured(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    response_model: type[StructuredModel],
+) -> StructuredModel:
+    """Generate validated output through the configured model provider."""
+
+    return await get_llm().generate_structured(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        response_model=response_model,
+    )
+
+
+def get_provider_metadata() -> tuple[str, str]:
+    """Return truthful audit metadata for the configured provider."""
+
+    if _uses_student_gateway():
+        return "student-api-gateway", settings.getaway_model
+    return "openrouter", settings.openrouter_model

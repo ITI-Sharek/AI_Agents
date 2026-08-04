@@ -15,12 +15,15 @@ class Settings:
     )
     openrouter_model: str = field(
         default_factory=lambda: os.environ.get(
-            "OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free"
+            "OPENROUTER_MODEL",
+            os.environ.get(
+                "DEFAULT_MODEL", "openrouter/free"
+            ),
         )
     )
     default_model: str = field(
         default_factory=lambda: os.environ.get(
-            "DEFAULT_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free"
+            "DEFAULT_MODEL", "openrouter/free"
         )
     )
     ai_provider: str = field(

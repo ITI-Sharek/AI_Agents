@@ -65,6 +65,7 @@ async def generate_skill_profile_endpoint(body: SkillProfileInput):
             detail="Skill-profile provider timed out",
         ) from exc
     except SkillProfileProviderError as exc:
+        logger.exception("Skill-profile generation failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Skill-profile provider returned an invalid response",
