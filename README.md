@@ -48,6 +48,11 @@ by the NestJS backend. It accepts fixed Requirement and authorized Evidence
 snapshots and returns one bounded finding per Requirement. It never returns an
 Application decision, eligibility verdict, score, rank, or workflow mutation.
 
+Each evidence item is a strict bounded capsule with `evidenceId`, `type`,
+`label`, and an optional bounded summary. The allowlist must exactly match the
+unique capsule identifiers; opaque evidence objects and extra fields are
+rejected before provider work.
+
 No authorized evidence returns `NOT_STARTED_NO_ASSESSABLE_EVIDENCE` without a
 provider call. Provider limits return `NOT_STARTED_SYSTEM_LIMIT`; timeouts and
 invalid output fail with safe 504/502 responses. The backend remains the owner

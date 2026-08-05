@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -49,10 +49,25 @@ class RequirementSnapshot(ContractModel):
         return value
 
 
+class EvidenceCapsule(ContractModel):
+    evidence_id: str = Field(min_length=1, max_length=250)
+    type: Literal["approved_skill", "github_repository"]
+    label: str = Field(min_length=1, max_length=200)
+    summary: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("evidence_id", "label")
+    @classmethod
+    def capsule_text_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("evidence capsule text must not be blank")
+        return value
+
+
 class AdvisoryFitInput(ContractModel):
     assessment_request_id: str = Field(min_length=1, max_length=200)
     requirements: list[RequirementSnapshot] = Field(min_length=1)
-    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: list[EvidenceCapsule] = Field(default_factory=list, max_length=100)
     allowed_evidence_ids: list[str] = Field(default_factory=list)
     requested_at: datetime
     contract_version: Literal["advisory-fit-v1"]
@@ -74,6 +89,17 @@ class AdvisoryFitInput(ContractModel):
         if any(not item for item in cleaned) or len(cleaned) != len(set(cleaned)):
             raise ValueError("allowed evidence IDs must be unique and non-blank")
         return cleaned
+
+    @model_validator(mode="after")
+    def evidence_allowlist_matches_capsules(self) -> "AdvisoryFitInput":
+        capsule_ids = [item.evidence_id for item in self.evidence]
+        if len(capsule_ids) != len(set(capsule_ids)):
+            raise ValueError("evidence capsule IDs must be unique")
+        if set(self.allowed_evidence_ids) != set(capsule_ids):
+            raise ValueError(
+                "allowed evidence IDs must exactly match the supplied capsules"
+            )
+        return self
 
 
 class AdvisoryFitFinding(ContractModel):

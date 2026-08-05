@@ -6,6 +6,7 @@ import time
 from collections.abc import Awaitable, Callable
 
 import httpx
+from groq import APIStatusError, RateLimitError
 from langchain_groq import ChatGroq
 from pydantic import ValidationError
 
@@ -33,16 +34,45 @@ class AdvisoryFitProviderSystemLimit(AdvisoryFitProviderError):
 Provider = Callable[[AdvisoryFitInput], Awaitable[AdvisoryFitProviderOutput]]
 
 
-def _bounded_integer(name: str, default: int, maximum: int) -> int:
+def _bounded_integer(
+    name: str, default: int, *, minimum: int, maximum: int
+) -> int:
     try:
-        return max(0, min(int(os.environ.get(name, str(default))), maximum))
+        value = int(os.environ.get(name, str(default)))
     except ValueError:
         return default
+    if value < minimum:
+        return default
+    return min(value, maximum)
+
+
+def _bounded_timeout_seconds() -> int:
+    return _bounded_integer(
+        "AI_ADVISORY_FIT_TIMEOUT_SECONDS",
+        60,
+        minimum=1,
+        maximum=180,
+    )
+
+
+def _is_quota_or_billing_status(error: APIStatusError) -> bool:
+    if error.status_code in {402, 429}:
+        return True
+    body = error.body if isinstance(error.body, dict) else {}
+    detail = body.get("error", body)
+    if not isinstance(detail, dict):
+        return False
+    values = " ".join(
+        str(detail.get(key, "")) for key in ("code", "type", "message")
+    ).casefold()
+    return error.status_code == 403 and any(
+        marker in values for marker in ("quota", "billing", "credit", "payment")
+    )
 
 
 async def _default_provider(input_data: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
     model = os.environ.get("LLM_MODEL", "openai/gpt-oss-120b")
-    timeout = _bounded_integer("AI_ADVISORY_FIT_TIMEOUT_SECONDS", 60, 180)
+    timeout = _bounded_timeout_seconds()
     try:
         structured = ChatGroq(
             model=model,
@@ -60,6 +90,12 @@ async def _default_provider(input_data: AdvisoryFitInput) -> AdvisoryFitProvider
             timeout=timeout,
         )
         return AdvisoryFitProviderOutput.model_validate(result)
+    except RateLimitError as exc:
+        raise AdvisoryFitProviderSystemLimit("provider system limit") from exc
+    except APIStatusError as exc:
+        if _is_quota_or_billing_status(exc):
+            raise AdvisoryFitProviderSystemLimit("provider system limit") from exc
+        raise AdvisoryFitProviderError("Advisory Fit provider failed") from exc
     except asyncio.TimeoutError as exc:
         raise AdvisoryFitProviderTimeout("Advisory Fit provider timed out") from exc
     except httpx.HTTPStatusError as exc:
@@ -96,7 +132,9 @@ async def generate_advisory_fit(
         return AdvisoryFitResult(status="NOT_STARTED_NO_ASSESSABLE_EVIDENCE")
 
     started = time.perf_counter()
-    retries = _bounded_integer("AI_ADVISORY_FIT_MAX_RETRIES", 1, 1)
+    retries = _bounded_integer(
+        "AI_ADVISORY_FIT_MAX_RETRIES", 1, minimum=0, maximum=1
+    )
     output: AdvisoryFitProviderOutput | None = None
     for attempt in range(retries + 1):
         try:

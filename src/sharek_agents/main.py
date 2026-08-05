@@ -2,6 +2,8 @@ import os
 import secrets
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from dotenv import load_dotenv
 
@@ -21,6 +23,14 @@ from sharek_agents.agents.advisory_fit.schemas import AdvisoryFitInput, Advisory
 
 app = FastAPI(title="Share-k AI Agents", version="0.1.0")
 internal_auth = HTTPBearer(auto_error=False)
+
+
+@app.exception_handler(RequestValidationError)
+async def safe_validation_error(_request, _error: RequestValidationError):
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": "Request validation failed"},
+    )
 
 
 def require_internal_auth(
