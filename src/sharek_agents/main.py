@@ -2,6 +2,8 @@ import os
 import secrets
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from dotenv import load_dotenv
 
@@ -16,9 +18,19 @@ from sharek_agents.agents.skill_profiling.schemas import (
     SkillProfileGenerationRequest,
     SkillProfileGenerationResponse,
 )
+from sharek_agents.agents.advisory_fit.endpoint import analyze_advisory_fit
+from sharek_agents.agents.advisory_fit.schemas import AdvisoryFitInput, AdvisoryFitResult
 
 app = FastAPI(title="Share-k AI Agents", version="0.1.0")
 internal_auth = HTTPBearer(auto_error=False)
+
+
+@app.exception_handler(RequestValidationError)
+async def safe_validation_error(_request, _error: RequestValidationError):
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": "Request validation failed"},
+    )
 
 
 def require_internal_auth(
@@ -63,3 +75,20 @@ async def generate_skill_profile(
     _authenticated: None = Depends(require_internal_auth),
 ) -> SkillProfileGenerationResponse:
     return await generate_from_selected_evidence(request)
+
+
+@app.post(
+    "/advisory-fit/assess",
+    response_model=AdvisoryFitResult,
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider output was invalid"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def advisory_fit_assessment(
+    request: AdvisoryFitInput,
+    _authenticated: None = Depends(require_internal_auth),
+) -> AdvisoryFitResult:
+    return await analyze_advisory_fit(request)
