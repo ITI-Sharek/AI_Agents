@@ -35,10 +35,12 @@ never in source control. Set `AI_PROVIDER=openrouter` with
 environments.
 
 The initial Alibaba rollout uses `qwen3.7-plus` for the shared Skill Profiling
-and Advisory Fit chat-model factory. Change `ALIBABA_MODEL` only after running
-the same structured-output contract checks against another model. Document
-Understanding keeps its separate chat and embedding configuration; this rollout
-does not replace its embeddings or request-scoped vector store.
+and Advisory Fit chat-model factory. `ALIBABA_ENABLE_THINKING=false` is the
+default because these workflows require synchronous structured output; thinking
+adds latency and output tokens. Change `ALIBABA_MODEL` only after running the
+same structured-output contract checks against another model. Document
+Understanding keeps its separate chat and embedding configuration; this
+rollout does not replace its embeddings or request-scoped vector store.
 
 Missing credentials and incompatible Alibaba base URLs fail before a network
 call. Provider authentication, invalid-model, quota, rate-limit, network, and

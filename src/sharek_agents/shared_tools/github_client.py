@@ -12,10 +12,11 @@ class GithubClient:
     def __init__(self, token: str | None = None):
         self.token = token or settings.github_token
         self._headers = {
-            "Authorization": f"Bearer {self.token}",
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "sharek-ai-agents/1.0",
         }
+        if self.token:
+            self._headers["Authorization"] = f"Bearer {self.token}"
 
     async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict | list | None:
         async with httpx.AsyncClient() as client:

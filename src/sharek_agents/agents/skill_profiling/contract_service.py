@@ -596,17 +596,20 @@ def _merge_fraud_signals(
 
 
 def _check_no_analyzable_evidence(request: SkillProfileInput) -> bool:
-    """Guardrail: if Step 1 AND Step 2 produced entirely empty evidence
-    for EVERY repository, return True to fail-fast with a clear error.
+    """Return True only when every repository has no usable evidence.
 
-    Runs AFTER both Step 1 (unconditionally) and Step 2 (conditionally,
-    per-repo) evidence has been captured on the capsule. Reads from the
-    capsule directly — no separate parameter needed.
+    The NestJS backend already submits trusted repository metadata. Framework
+    detection and deep analysis enrich that capsule, but transient GitHub or
+    analysis-service failures must not discard languages and technologies that
+    were collected upstream.
 
-    This guardrail checks both evidence sources independently: Step 1's
-    presence alone is sufficient to pass. Step 2's absence never causes
-    a false positive."""
+    Runs after Step 1 and Step 2 have populated their optional evidence."""
     for capsule in request.selected_repositories:
+        has_backend_evidence = bool(
+            capsule.languages
+            or capsule.technologies
+            or capsule.readme_excerpt
+        )
         has_frameworks = (
             capsule.framework_detection is not None
             and bool(capsule.framework_detection.frameworks_detected)
@@ -619,7 +622,7 @@ def _check_no_analyzable_evidence(request: SkillProfileInput) -> bool:
             capsule.graph_relations is not None
             and capsule.graph_relations.status == "success"
         )
-        if has_frameworks or has_static or has_graph:
+        if has_backend_evidence or has_frameworks or has_static or has_graph:
             return False
     return True
 

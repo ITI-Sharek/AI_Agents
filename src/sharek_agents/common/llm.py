@@ -37,6 +37,9 @@ def _alibaba_llm(model: str) -> BaseChatModel:
         base_url=base_url,
         timeout=settings.ai_skill_profile_timeout_seconds,
         temperature=0.0,
+        extra_body={
+            "enable_thinking": settings.alibaba_enable_thinking,
+        },
     )
 
 

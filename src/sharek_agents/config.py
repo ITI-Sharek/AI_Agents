@@ -45,6 +45,12 @@ class Settings:
             "ALIBABA_MODEL", "qwen3.7-plus"
         )
     )
+    alibaba_enable_thinking: bool = field(
+        default_factory=lambda: os.environ.get(
+            "ALIBABA_ENABLE_THINKING", "false"
+        ).lower()
+        == "true"
+    )
     default_model: str = field(
         default_factory=lambda: _env("DEFAULT_MODEL", "LLM_MODEL")
     )

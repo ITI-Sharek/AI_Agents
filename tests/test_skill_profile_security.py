@@ -14,6 +14,7 @@ from sharek_agents.agents.skill_profiling.contract_schemas import (
 )
 from sharek_agents.agents.skill_profiling.contract_service import (
     SkillProfileProviderError,
+    _check_no_analyzable_evidence,
     _deterministic_fraud_signals,
     _validate_model_citations,
     assess_evidence_quality,
@@ -140,6 +141,21 @@ def test_unattributed_repository_produces_weak_evidence() -> None:
     repository = make_repository(contributed=False, github_login="")
 
     assert assess_evidence_quality([repository]) == "weak"
+
+
+def test_backend_repository_evidence_survives_enricher_unavailability() -> None:
+    request = make_request(make_repository())
+
+    assert _check_no_analyzable_evidence(request) is False
+
+
+def test_empty_repository_evidence_is_rejected() -> None:
+    repository = make_repository()
+    repository.languages = {}
+    repository.technologies = []
+    repository.readme_excerpt = None
+
+    assert _check_no_analyzable_evidence(make_request(repository)) is True
 
 
 def test_model_citations_must_match_submitted_evidence_ids() -> None:

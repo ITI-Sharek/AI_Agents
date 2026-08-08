@@ -21,6 +21,7 @@ def configure_alibaba(monkeypatch) -> None:
     monkeypatch.setattr(llm.settings, "ai_provider", "alibaba")
     monkeypatch.setattr(llm.settings, "default_model", "")
     monkeypatch.setattr(llm.settings, "alibaba_model", "qwen3.7-plus")
+    monkeypatch.setattr(llm.settings, "alibaba_enable_thinking", False)
     monkeypatch.setattr(llm.settings, "alibaba_api_key", "test-secret")
     monkeypatch.setattr(
         llm.settings,
@@ -44,6 +45,7 @@ def test_alibaba_uses_openai_compatible_client(monkeypatch) -> None:
         ),
         "timeout": llm.settings.ai_skill_profile_timeout_seconds,
         "temperature": 0.0,
+        "extra_body": {"enable_thinking": False},
     }
 
 
