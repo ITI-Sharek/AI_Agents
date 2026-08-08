@@ -1,35 +1,109 @@
-"""LLM instance management with multi-model caching."""
+"""Provider-selectable LLM instance management with safe caching."""
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from langchain_openrouter import ChatOpenRouter
 
 from sharek_agents.config import settings
 
-_cache: dict[str, ChatOpenRouter] = {}
+_cache: dict[tuple[str, str, str], BaseChatModel] = {}
 
 _doc_understanding_cache: dict[str, ChatOpenAI] = {}
 
 
-def get_llm(model: str | None = None) -> ChatOpenRouter:
-    """Get a cached LLM instance for the given model.
+class LLMConfigurationError(ValueError):
+    """Raised when the selected provider is not safely configured."""
+
+
+def _required(value: str, variable_name: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise LLMConfigurationError(f"{variable_name} is required")
+    return normalized
+
+
+def _alibaba_llm(model: str) -> BaseChatModel:
+    api_key = _required(settings.alibaba_api_key, "ALIBABA_API_KEY")
+    base_url = _required(settings.alibaba_base_url, "ALIBABA_BASE_URL").rstrip("/")
+    if not base_url.startswith("https://") or not base_url.endswith(
+        "/compatible-mode/v1"
+    ):
+        raise LLMConfigurationError(
+            "ALIBABA_BASE_URL must be an HTTPS OpenAI-compatible base URL"
+        )
+    return ChatOpenAI(
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        timeout=settings.ai_skill_profile_timeout_seconds,
+        temperature=0.0,
+    )
+
+
+def _openrouter_llm(model: str) -> BaseChatModel:
+    api_key = _required(settings.openrouter_api_key, "OPENROUTER_API_KEY")
+    return ChatOpenRouter(
+        model=model,
+        api_key=api_key,
+        # Preserve the existing OpenRouter client timeout convention.
+        timeout=int(settings.ai_skill_profile_timeout_seconds * 1000),
+        temperature=0.0,
+    )
+
+
+def _groq_llm(model: str) -> BaseChatModel:
+    api_key = _required(settings.groq_api_key, "GROQ_API_KEY")
+    return ChatOpenAI(
+        model=model,
+        api_key=api_key,
+        base_url="https://api.groq.com/openai/v1",
+        timeout=settings.ai_skill_profile_timeout_seconds,
+        temperature=0.0,
+    )
+
+
+def get_llm(model: str | None = None) -> BaseChatModel:
+    """Get a cached chat model for the configured provider.
 
     Args:
-        model: Model identifier on OpenRouter. If None, uses the default
-               model from settings.
+        model: Optional provider model override. The configured active model is
+            used when omitted.
 
     Returns:
-        A ChatOpenRouter instance configured with the given model.
+        A LangChain chat model configured for Alibaba Model Studio or the
+        existing OpenRouter provider.
     """
-    model = model or settings.openrouter_model
-    if model not in _cache:
-        _cache[model] = ChatOpenRouter(
-            model=model,
-            api_key=settings.openrouter_api_key,
-            # timeout is in milliseconds; convert from seconds
-            timeout=int(settings.ai_skill_profile_timeout_seconds * 1000),
-            temperature=0.0,
-        )
-    return _cache[model]
+    provider = settings.ai_provider.strip().lower()
+    resolved_model = _required(
+        model or settings.active_chat_model,
+        {
+            "alibaba": "ALIBABA_MODEL",
+            "groq": "GROQ_MODEL",
+        }.get(provider, "OPENROUTER_MODEL"),
+    )
+
+    if provider == "alibaba":
+        base_url = settings.alibaba_base_url.strip().rstrip("/")
+        cache_key = (provider, resolved_model, base_url)
+        if cache_key not in _cache:
+            _cache[cache_key] = _alibaba_llm(resolved_model)
+        return _cache[cache_key]
+
+    if provider == "openrouter":
+        cache_key = (provider, resolved_model, "")
+        if cache_key not in _cache:
+            _cache[cache_key] = _openrouter_llm(resolved_model)
+        return _cache[cache_key]
+
+    if provider == "groq":
+        cache_key = (provider, resolved_model, "https://api.groq.com/openai/v1")
+        if cache_key not in _cache:
+            _cache[cache_key] = _groq_llm(resolved_model)
+        return _cache[cache_key]
+
+    raise LLMConfigurationError(
+        f"Unsupported AI_PROVIDER '{provider}'. Expected alibaba, openrouter, or groq"
+    )
 
 
 def get_doc_understanding_llm() -> ChatOpenAI:
@@ -66,98 +140,3 @@ def clear_cache() -> None:
     """Clear the LLM instance cache. Useful for testing."""
     _cache.clear()
     _doc_understanding_cache.clear()
-
-'''
-
-
-"""Student API Gateway LLM client."""
-
-"""Student API Gateway LLM client."""
-
-import httpx
-
-from sharek_agents.config import settings
-
-
-class StudentGatewayLLM:
-    """Client for the Student API Gateway."""
-
-    def __init__(
-        self,
-        model: str,
-        api_key: str,
-        base_url: str,
-        timeout: float = 60.0,
-    ):
-        self.model = model
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
-
-    def invoke(self, prompt: str) -> str:
-        """Send a text prompt to the Student API Gateway."""
-
-        url = f"{self.base_url}/api/v1/student/chat"
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "model_id": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "text": prompt,
-                }
-            ],
-            "max_tokens": 1000,
-            "temperature": 0.0,
-        }
-
-        with httpx.Client(timeout=self.timeout) as client:
-            response = client.post(
-                url,
-                headers=headers,
-                json=payload,
-            )
-
-        if response.status_code == 401:
-            raise RuntimeError(
-                "Invalid Student API Gateway API key."
-            )
-
-        if response.status_code == 403:
-            raise RuntimeError(
-                "Student API Gateway API key is not authorized "
-                "to access this resource."
-            )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        output_text = data.get("output_text")
-
-        if not output_text:
-            raise RuntimeError(
-                "Student API Gateway response is missing output_text."
-            )
-
-        return output_text
-
-
-def get_llm(model: str | None = None) -> StudentGatewayLLM:
-    """Get an LLM client configured for the Student API Gateway."""
-
-    model = model or settings.getaway_model
-
-    return StudentGatewayLLM(
-        model=model,
-        api_key=settings.getaway_iti_key,
-        base_url=settings.getaway_base_url,
-        timeout=settings.ai_skill_profile_timeout_seconds,
-    )
-
-'''

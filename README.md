@@ -15,15 +15,35 @@ reading order.
 
 ```bash
 python3 -m pip install -r requirements.txt
-export GROQ_API_KEY="your-rotated-groq-key"
+export AI_PROVIDER="alibaba"
+export ALIBABA_API_KEY="your-model-studio-key"
+export ALIBABA_BASE_URL="https://your-workspace-id.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+export ALIBABA_MODEL="qwen3.7-plus"
 export AI_SERVICE_AUTH_TOKEN="a-long-random-internal-token"
-export LLM_PROVIDER="groq"
-export LLM_MODEL="openai/gpt-oss-120b"
 PYTHONPATH=src uvicorn sharek_agents.main:app --reload --port 8010
 ```
 
 Configure the NestJS backend with the same `AI_SERVICE_AUTH_TOKEN` and with
 `AI_SERVICE_URL=http://localhost:8010`.
+
+`AI_PROVIDER=alibaba` reuses the existing OpenAI-compatible LangChain client;
+no Alibaba-specific SDK is required. The API key and base URL must belong to
+the same Singapore workspace. Keep secrets only in environment configuration,
+never in source control. Set `AI_PROVIDER=openrouter` with
+`OPENROUTER_API_KEY` and `OPENROUTER_MODEL` to retain OpenRouter, or set
+`AI_PROVIDER=groq` with `GROQ_API_KEY` and `GROQ_MODEL` for legacy Groq
+environments.
+
+The initial Alibaba rollout uses `qwen3.7-plus` for the shared Skill Profiling
+and Advisory Fit chat-model factory. Change `ALIBABA_MODEL` only after running
+the same structured-output contract checks against another model. Document
+Understanding keeps its separate chat and embedding configuration; this rollout
+does not replace its embeddings or request-scoped vector store.
+
+Missing credentials and incompatible Alibaba base URLs fail before a network
+call. Provider authentication, invalid-model, quota, rate-limit, network, and
+context-limit failures stay behind the existing sanitized provider error
+boundary. The existing request timeout remains the separate timeout boundary.
 
 ## Skill Profiling Contract
 

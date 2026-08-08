@@ -7,6 +7,14 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
+def _env(primary: str, legacy: str | None = None, default: str = "") -> str:
+    """Read a canonical setting with an optional legacy fallback."""
+    value = os.environ.get(primary)
+    if value is None and legacy is not None:
+        value = os.environ.get(legacy)
+    return (value if value is not None else default).strip()
+
+
 @dataclass
 class Settings:
     github_token: str = field(default_factory=lambda: os.environ.get("GITHUB_TOKEN", ""))
@@ -18,13 +26,32 @@ class Settings:
             "OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free"
         )
     )
-    default_model: str = field(
-        default_factory=lambda: os.environ.get(
-            "DEFAULT_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free"
+    groq_api_key: str = field(
+        default_factory=lambda: os.environ.get("GROQ_API_KEY", "")
+    )
+    groq_model: str = field(
+        default_factory=lambda: _env(
+            "GROQ_MODEL", "LLM_MODEL", "openai/gpt-oss-120b"
         )
     )
+    alibaba_api_key: str = field(
+        default_factory=lambda: os.environ.get("ALIBABA_API_KEY", "")
+    )
+    alibaba_base_url: str = field(
+        default_factory=lambda: os.environ.get("ALIBABA_BASE_URL", "")
+    )
+    alibaba_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "ALIBABA_MODEL", "qwen3.7-plus"
+        )
+    )
+    default_model: str = field(
+        default_factory=lambda: _env("DEFAULT_MODEL", "LLM_MODEL")
+    )
     ai_provider: str = field(
-        default_factory=lambda: os.environ.get("AI_PROVIDER", "openrouter")
+        default_factory=lambda: _env(
+            "AI_PROVIDER", "LLM_PROVIDER", "openrouter"
+        ).lower()
     )
     ai_service_auth_token: str = field(
         default_factory=lambda: os.environ.get("AI_SERVICE_AUTH_TOKEN", "")
@@ -242,6 +269,17 @@ class Settings:
     chunk_min_size: int = field(
         default_factory=lambda: int(os.environ.get("CHUNK_MIN_SIZE", "100"))
     )
+
+    @property
+    def active_chat_model(self) -> str:
+        """Return the configured model for the active chat provider."""
+        if self.ai_provider == "alibaba":
+            return self.alibaba_model
+        if self.ai_provider == "openrouter":
+            return self.openrouter_model
+        if self.ai_provider == "groq":
+            return self.groq_model
+        return self.default_model
 
 
 settings = Settings()
