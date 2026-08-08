@@ -150,13 +150,15 @@ async def run_in_container(
     memory_mb: int = 1024,
     cpus: float = 2.0,
     network: bool = False,
+    writable: bool = False,
 ) -> tuple[int, str, str]:
+    mount = f"{work_dir}:/workspace" + ("" if writable else ":ro")
     docker_cmd = [
         "docker", "run", "--rm",
         "--memory", f"{memory_mb}m",
         "--cpus", str(cpus),
         "--network", "bridge" if network else "none",
-        "-v", f"{work_dir}:/workspace:ro",
+        "-v", mount,
         "-w", "/workspace",
         _IMAGE_TAG,
     ] + cmd
@@ -174,6 +176,50 @@ async def run_in_container(
     except asyncio.TimeoutError:
         _docker_kill(proc)
         raise
+
+
+async def run_analysis_in_container(
+    tool: str,
+    language: str,
+    work_dir: str,
+    timeout: Optional[float] = None,
+    image: str = _IMAGE_TAG,
+) -> tuple[int, str, str]:
+    """Run a static-analysis/Graphify tool inside the runner container.
+
+    The untrusted repository is mounted at ``/workspace`` and the tool is
+    executed by the sandbox runner module inside the container image
+    (``code-analysis-service.sandbox_runner``). The host only parses the
+    JSON emitted on stdout — it never executes analysis tools itself.
+
+    Returns ``(returncode, stdout, stderr)``. Any non-zero exit code is a
+    fail-closed signal: the caller must report the tool as unavailable.
+    """
+    if tool == "static_analysis":
+        runner_cmd = [
+            "python", "-m", "code_analysis_service.sandbox_runner",
+            "static", language, "/workspace",
+        ]
+        writable = False
+    elif tool == "graph_relations":
+        runner_cmd = [
+            "python", "-m", "code_analysis_service.sandbox_runner",
+            "graph", "/workspace",
+        ]
+        # graphify writes graphify-out/ into the workspace
+        writable = True
+    else:
+        raise ValueError(f"unsupported sandbox tool: {tool}")
+
+    if timeout is not None:
+        runner_cmd += ["--timeout", str(int(timeout))]
+
+    return await run_in_container(
+        runner_cmd,
+        work_dir,
+        timeout=timeout,
+        writable=writable,
+    )
 
 
 @asynccontextmanager

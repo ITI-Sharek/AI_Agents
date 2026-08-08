@@ -1,15 +1,27 @@
+# Runner image for the code-analysis-service sandbox.
+#
+# Build context must be the repository root:
+#   docker build -t code-analysis-runner:latest -f code-analysis-service/src/code_analysis_service/Dockerfile.analysis .
+#
+# The image bundles the service itself so the orchestrator can execute
+# analysis INSIDE the container (python -m code_analysis_service.sandbox_runner).
+# Any analysis tool missing from this image is reported as tool_unavailable
+# by the sandbox runner — the service never falls back to host execution.
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir radon pylint
+RUN pip install --no-cache-dir radon pylint graphifyy
 
 COPY --from=node:20-slim /usr/local/bin/node /usr/local/bin/node
 COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     npm install -g eslint@8
+
+COPY code-analysis-service /service-src
+RUN pip install --no-cache-dir /service-src
 
 WORKDIR /workspace
 ENTRYPOINT ["/bin/sh", "-c"]

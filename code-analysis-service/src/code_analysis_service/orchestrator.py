@@ -1,22 +1,29 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import shutil
 import tempfile
 import time
-from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal
 
-from .adapters import get_adapter
-from .clone import clone_repo
-from .container_sandbox import check_docker, clone_in_container
-from .graphify_runner import run_graphify
+from .container_sandbox import (
+    check_docker,
+    clone_in_container,
+    run_analysis_in_container,
+)
 from .models import (
+    AnalysisIssue,
     AnalysisResult,
+    CircularImport,
     CloneResult,
-    EXTENSIONS,
+    GraphEdge,
+    GraphNode,
     GraphRelationsEvidence,
+    InheritanceRelation,
     StaticAnalysisEvidence,
+    StructuralGraph,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +35,11 @@ _DETERMINISTIC_STATUSES = frozenset({
     "tool_unavailable",
     "authentication_failed",
 })
+
+_SANDBOX_UNAVAILABLE_MSG = (
+    "sandbox unavailable: docker is not available on this host — "
+    "refusing host-side execution"
+)
 
 
 def _classify_failure(status: str, error_message: str | None = None) -> str:
@@ -46,19 +58,59 @@ def _classify_failure(status: str, error_message: str | None = None) -> str:
     return "deterministic"
 
 
+def _static_evidence_from_dict(data: dict[str, Any]) -> StaticAnalysisEvidence:
+    structure_data = data.get("structure") or {}
+    structure = StructuralGraph(
+        inheritance_relationships=[
+            InheritanceRelation(**r)
+            for r in structure_data.get("inheritance_relationships", [])
+        ],
+        coupling=structure_data.get("coupling"),
+        circular_imports=[
+            CircularImport(**c)
+            for c in structure_data.get("circular_imports", [])
+        ],
+    )
+    return StaticAnalysisEvidence(
+        status=data.get("status", "success"),
+        language=data.get("language", ""),
+        files_analyzed=data.get("files_analyzed", 0),
+        complexity=data.get("complexity"),
+        maintainability_index=data.get("maintainability_index"),
+        issues=[AnalysisIssue(**i) for i in data.get("issues", [])],
+        structure=structure,
+        error_message=data.get("error_message"),
+    )
+
+
+def _graph_evidence_from_dict(data: dict[str, Any]) -> GraphRelationsEvidence:
+    return GraphRelationsEvidence(
+        status=data.get("status", "success"),
+        nodes=[GraphNode(**n) for n in data.get("nodes", [])],
+        edges=[GraphEdge(**e) for e in data.get("edges", [])],
+        inheritance_depth=data.get("inheritance_depth"),
+        coupling=data.get("coupling"),
+        coupling_summary=data.get("coupling_summary", ""),
+        circular_imports=[
+            CircularImport(**c) for c in data.get("circular_imports", [])
+        ],
+        error_message=data.get("error_message"),
+    )
+
+
 async def _clone_repo(
     repo_url: str,
     pat: str | None,
     dest_dir: str,
     timeout_seconds: int,
-    use_container: bool,
 ) -> CloneResult:
-    if use_container:
-        return await clone_in_container(
-            repo_url=repo_url, pat=pat, dest_dir=dest_dir,
-            timeout_seconds=timeout_seconds,
-        )
-    return await clone_repo(
+    """Clone inside the runner container.
+
+    The sandbox is MANDATORY: this is the only clone path used by
+    ``/analyze/repo``. The host-side ``clone_repo()`` in ``clone.py`` is
+    never called by the orchestrator.
+    """
+    return await clone_in_container(
         repo_url=repo_url, pat=pat, dest_dir=dest_dir,
         timeout_seconds=timeout_seconds,
     )
@@ -69,18 +121,79 @@ async def _run_static_analysis(
     repo_path: str,
     budget: int,
 ) -> StaticAnalysisEvidence:
-    adapter = get_adapter(language)
-    exts = EXTENSIONS.get(language.lower(), [])
-    all_files = [
-        str(p)
-        for p in sorted(Path(repo_path).rglob("*"))
-        if p.is_file() and p.suffix in exts
-    ]
-    if not all_files:
-        return StaticAnalysisEvidence(
-            status="no_analyzable_content", language=language
+    try:
+        returncode, stdout, stderr = await run_analysis_in_container(
+            tool="static_analysis",
+            language=language,
+            work_dir=repo_path,
+            timeout=budget,
         )
-    return adapter(repo_path=repo_path, file_paths=all_files, timeout=budget)
+    except asyncio.TimeoutError:
+        return StaticAnalysisEvidence(status="timeout", language=language)
+    except Exception as exc:
+        logger.warning("static analysis sandbox run failed: %s", exc)
+        return StaticAnalysisEvidence(
+            status="tool_unavailable",
+            language=language,
+            error_message="sandbox execution failed",
+        )
+
+    if returncode != 0:
+        logger.warning(
+            "static analysis sandbox run exited %s: %s", returncode, stderr[:200]
+        )
+        return StaticAnalysisEvidence(
+            status="tool_unavailable",
+            language=language,
+            error_message="sandbox execution failed",
+        )
+    try:
+        return _static_evidence_from_dict(json.loads(stdout or "{}"))
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        logger.warning("cannot parse sandbox static-analysis output: %s", exc)
+        return StaticAnalysisEvidence(
+            status="tool_unavailable",
+            language=language,
+            error_message="sandbox execution failed",
+        )
+
+
+async def _run_graph_relations(
+    repo_path: str,
+    budget: int,
+) -> GraphRelationsEvidence:
+    try:
+        returncode, stdout, stderr = await run_analysis_in_container(
+            tool="graph_relations",
+            language="",
+            work_dir=repo_path,
+            timeout=budget,
+        )
+    except asyncio.TimeoutError:
+        return GraphRelationsEvidence(status="timeout")
+    except Exception as exc:
+        logger.warning("graph sandbox run failed: %s", exc)
+        return GraphRelationsEvidence(
+            status="tool_unavailable",
+            error_message="sandbox execution failed",
+        )
+
+    if returncode != 0:
+        logger.warning(
+            "graph sandbox run exited %s: %s", returncode, stderr[:200]
+        )
+        return GraphRelationsEvidence(
+            status="tool_unavailable",
+            error_message="sandbox execution failed",
+        )
+    try:
+        return _graph_evidence_from_dict(json.loads(stdout or "{}"))
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        logger.warning("cannot parse sandbox graph output: %s", exc)
+        return GraphRelationsEvidence(
+            status="tool_unavailable",
+            error_message="sandbox execution failed",
+        )
 
 
 async def _run_tool(
@@ -92,9 +205,7 @@ async def _run_tool(
     if tool == "static_analysis":
         return await _run_static_analysis(language, repo_path, budget)
     if tool == "graph_relations":
-        return await run_graphify(
-            cloned_repo_path=repo_path, timeout_seconds=budget
-        )
+        return await _run_graph_relations(repo_path, budget)
     return StaticAnalysisEvidence(
         status="language_not_supported", language=language
     )
@@ -129,24 +240,53 @@ def _clone_to_evidence(
     return GraphRelationsEvidence(status=clone_status)
 
 
+def _sandbox_unavailable_evidence(
+    tool: str, language: str,
+) -> StaticAnalysisEvidence | GraphRelationsEvidence:
+    if tool == "static_analysis":
+        return StaticAnalysisEvidence(
+            status="tool_unavailable",
+            language=language,
+            error_message=_SANDBOX_UNAVAILABLE_MSG,
+        )
+    return GraphRelationsEvidence(
+        status="tool_unavailable",
+        error_message=_SANDBOX_UNAVAILABLE_MSG,
+    )
+
+
 async def analyze_repo(
     repo_url: str,
     pat: str | None,
     language: str,
     requested_tools: list[Literal["static_analysis", "graph_relations"]],
 ) -> AnalysisResult:
+    """Analyze a repository — sandbox execution is MANDATORY.
+
+    Every clone and every static-analysis/Graphify run executes inside
+    the runner container. If the sandbox (Docker) is unavailable, the
+    request fails closed with ``tool_unavailable`` — the service NEVER
+    falls back to host-side ``clone_repo()`` or host-side tool execution.
+    """
     result = AnalysisResult()
     remaining = set(requested_tools)
 
-    use_container = check_docker()
-    if use_container:
-        logger.info("Docker available — using container sandbox for isolation")
+    if not check_docker():
+        logger.warning(
+            "Docker is unavailable — failing closed with tool_unavailable; "
+            "no host-side execution will be attempted"
+        )
+        for tool in requested_tools:
+            _set_result(result, tool, _sandbox_unavailable_evidence(tool, language))
+        return result
+
+    logger.info("Docker available — running clone and analysis inside the container sandbox")
 
     first_dir = tempfile.mkdtemp(prefix="code-analysis-attempt1-")
     try:
         start = time.monotonic()
         clone_result = await _clone_repo(
-            repo_url, pat, first_dir, 90, use_container,
+            repo_url, pat, first_dir, 90,
         )
         elapsed = time.monotonic() - start
 
@@ -198,7 +338,7 @@ async def analyze_repo(
     try:
         start = time.monotonic()
         clone_result = await _clone_repo(
-            repo_url, pat, second_dir, 180, use_container,
+            repo_url, pat, second_dir, 180,
         )
         elapsed = time.monotonic() - start
 

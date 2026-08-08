@@ -137,6 +137,17 @@ async def run_graphify(
             error_message="graphify did not produce graph.json",
         )
 
+    return _parse_graphify_output(graph_file)
+
+
+def _parse_graphify_output(
+    graph_file: Path,
+) -> GraphRelationsEvidence:
+    """Parse a graphify-out/graph.json into GraphRelationsEvidence.
+
+    Shared by the host-side ``run_graphify`` and the in-container sandbox
+    runner — parsing never executes untrusted code, it only reads JSON.
+    """
     try:
         data = json.loads(graph_file.read_text())
     except (json.JSONDecodeError, OSError) as exc:
