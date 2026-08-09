@@ -143,6 +143,32 @@ findings and derives the Fit Band. Empty `allowedEvidenceIds` returns
 `NOT_STARTED_NO_ASSESSABLE_EVIDENCE` without a provider call; a configured
 provider/system safeguard may return `NOT_STARTED_SYSTEM_LIMIT`.
 
+## Material Analysis Contract
+
+`POST /material-analysis/analyze` is an internal, bearer-authenticated
+endpoint. NestJS sends an explicit `material-draft-v1` Analysis Run containing
+up to the configured Analysis Set limit of exact Project Material IDs/versions
+and their private bytes. The service extracts only Markdown, DOCX, and
+text-based PDF content and rejects a run once combined extracted text exceeds
+the configured character limit.
+
+Document text is untrusted evidence: the prompt treats it as data, follows no
+embedded instructions, and uses no links, macros, tools, or remote resources.
+The response is strict structured output containing only draft Project fields
+or draft Contribution Request fields. Every suggestion cites selected Material
+IDs and versions; NestJS validates that provenance again before persistence.
+The backend stores suggestions privately and never applies them automatically.
+The AI service builds a request-scoped chunk/vector index and returns the
+validated chunks; NestJS persists those vectors in PostgreSQL/pgvector under
+the Analysis Run. Retrieval is limited to the selected Analysis Set, and raw
+chunks are deleted when their source Material is deleted while non-content
+suggestion audit remains.
+
+Entitlement, queue lifecycle, source cleanup, and adoption authorization remain
+NestJS responsibilities. Adoption calls the owning Project or Contribution
+Request service only after an explicit owner review command; the AI service
+never mutates business rows.
+
 ## Skill Profiling Contract
 
 `POST /skill-profiles/generate` requires an internal bearer token. It accepts

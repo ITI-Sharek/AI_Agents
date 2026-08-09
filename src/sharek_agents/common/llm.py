@@ -5,7 +5,7 @@ from typing import TypeVar
 
 import httpx
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from sharek_agents.config import settings
 
@@ -215,11 +215,16 @@ class OpenRouterLLM:
     ) -> StructuredModel:
         """Request strict JSON Schema output and validate it with Pydantic."""
 
+        schema = response_model.model_json_schema(by_alias=True)
+        prompt_with_schema = (
+            f"{user_prompt}\n\nReturn only JSON matching this schema; do not add prose or Markdown:\n"
+            f"{json.dumps(schema)}"
+        )
         payload = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": prompt_with_schema},
             ],
             "temperature": 0.0,
             "max_tokens": 4000,
@@ -228,7 +233,7 @@ class OpenRouterLLM:
                 "json_schema": {
                     "name": response_model.__name__,
                     "strict": True,
-                    "schema": response_model.model_json_schema(by_alias=True),
+                    "schema": schema,
                 },
             },
             "provider": {"require_parameters": True},
@@ -239,9 +244,23 @@ class OpenRouterLLM:
                 headers=self._headers,
                 json=payload,
             )
+            # Free OpenRouter routes do not all advertise JSON Schema support.
+            # Retry only parameter-level rejection with broadly supported JSON
+            # object mode; provider/auth failures surface immediately.
+            if response.status_code in {400, 404, 422}:
+                fallback = {**payload, "response_format": {"type": "json_object"}}
+                fallback.pop("provider", None)
+                response = await client.post(
+                    self.url,
+                    headers=self._headers,
+                    json=fallback,
+                )
         response.raise_for_status()
         raw_output = _openrouter_content(response.json())
-        return response_model.model_validate_json(_strip_json_fence(raw_output))
+        try:
+            return response_model.model_validate_json(_strip_json_fence(raw_output))
+        except (ValidationError, ValueError) as exc:
+            raise RuntimeError("OpenRouter response did not match the requested schema") from exc
 
 
 def _openrouter_content(payload: dict) -> str:

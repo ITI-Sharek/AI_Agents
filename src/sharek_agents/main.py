@@ -24,6 +24,11 @@ from sharek_agents.agents.document_understanding.schemas import (
     DocumentUnderstandingInput,
     DocumentUnderstandingResult,
 )
+from sharek_agents.agents.material_analysis.endpoint import analyze_materials
+from sharek_agents.agents.material_analysis.schemas import (
+    MaterialAnalysisInput,
+    MaterialAnalysisResult,
+)
 from sharek_agents.agents.skill_profiling.router import profile_repos
 from sharek_agents.agents.skill_profiling.schemas import AgentResponse
 from sharek_agents.common.logging import get_logger
@@ -85,6 +90,22 @@ async def generate_skill_profile_endpoint(body: SkillProfileInput):
 )
 async def document_understanding_endpoint(body: DocumentUnderstandingInput):
     return await doc_understanding_analyze(body)
+
+
+@app.post(
+    "/material-analysis/analyze",
+    response_model=MaterialAnalysisResult,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        422: {"description": "Selected Material content could not be analyzed"},
+        502: {"description": "Material analysis provider returned an invalid response"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Material analysis provider timed out"},
+    },
+)
+async def material_analysis_endpoint(body: MaterialAnalysisInput):
+    return await analyze_materials(body)
 
 
 @app.post(

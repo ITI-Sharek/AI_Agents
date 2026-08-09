@@ -109,6 +109,11 @@ class Settings:
             os.environ.get("DOC_UNDERSTANDING_TIMEOUT_SECONDS", "120")
         )
     )
+    material_analysis_timeout_seconds: float = field(
+        default_factory=lambda: float(
+            os.environ.get("MATERIAL_ANALYSIS_TIMEOUT_SECONDS", "120")
+        )
+    )
     cloudinary_cloud_name: str = field(
         default_factory=lambda: os.environ.get("CLOUDINARY_CLOUD_NAME", "")
     )
