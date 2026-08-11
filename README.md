@@ -4,6 +4,14 @@ FastAPI service for evidence-backed Share-k AI workflows. The NestJS backend
 owns authentication, business state, and final decisions. This service returns
 structured recommendations only.
 
+The internal `/contributor-matching/generate` endpoint accepts a fixed
+published Contribution Request snapshot, active contributors with approved
+skills, verified reputation signals, and an explicit evidence allowlist. It
+returns ranked recommendations with categorical confidence, explanations,
+matched approved skills, and exact evidence citations. The FastAPI service does
+not authorize, select, notify, or persist contributors; NestJS owns those
+decisions and writes.
+
 ## Product Documentation
 
 Shared product context, accepted decisions, and sprint plans live in the
@@ -142,6 +150,34 @@ recommendation, Application status, or owner decision. NestJS validates the
 findings and derives the Fit Band. Empty `allowedEvidenceIds` returns
 `NOT_STARTED_NO_ASSESSABLE_EVIDENCE` without a provider call; a configured
 provider/system safeguard may return `NOT_STARTED_SYSTEM_LIMIT`.
+
+## Skill Gap Guidance Contract
+
+`POST /skill-gap-guidance/generate` and `POST /skill-gap-guidance/stream` are
+internal bearer-authenticated endpoints for the explicit contributor guidance
+workflow defined by ADR 0014. NestJS sends a fixed published Contribution
+Request requirement snapshot, approved skill snapshot, bounded source capsules,
+and an evidence allowlist under `skill-gap-guidance-v1`.
+
+Completed output is strict structured guidance: missing or below-target skills,
+recommended technologies, source-backed learning resources, practice projects,
+optional source-backed improvement steps, source attribution, and safe technical
+metadata. “Missing” means not evidenced in the supplied snapshot; the service
+never returns eligibility, rejection, score, rank, tier, Application status, or
+Owner Decision fields. URLs and improvement durations are omitted unless the
+the bounded retrieval context supports them.
+
+Learning resources are retrieved from a bounded in-service catalog of official
+documentation and tutorials using the fixed Requirement and approved-skill
+snapshot. The provider may return only exact URLs from that retrieved set; an
+unmatched resource is rejected before the result crosses back to NestJS.
+
+The stream endpoint emits one `guidance.completed` SSE event containing the
+validated complete result. Empty source scope returns
+`NOT_STARTED_NO_ASSESSABLE_EVIDENCE`; provider/system limits return
+`NOT_STARTED_SYSTEM_LIMIT`; malformed or timed-out provider output fails closed.
+The AI service does not persist business state or use the retired
+Application-linked `SkillGapGuidance` entity.
 
 ## Material Analysis Contract
 

@@ -29,6 +29,21 @@ from sharek_agents.agents.material_analysis.schemas import (
     MaterialAnalysisInput,
     MaterialAnalysisResult,
 )
+from sharek_agents.agents.skill_gap_guidance.endpoint import (
+    analyze_skill_gap_guidance,
+    stream_skill_gap_guidance,
+)
+from sharek_agents.agents.skill_gap_guidance.schemas import (
+    SkillGapGuidanceInput,
+    SkillGapGuidanceResult,
+)
+from sharek_agents.agents.contributor_matching.endpoint import (
+    analyze_contributor_matching,
+)
+from sharek_agents.agents.contributor_matching.schemas import (
+    ContributorMatchingInput,
+    ContributorMatchingResult,
+)
 from sharek_agents.agents.skill_profiling.router import profile_repos
 from sharek_agents.agents.skill_profiling.schemas import AgentResponse
 from sharek_agents.common.logging import get_logger
@@ -121,6 +136,50 @@ async def material_analysis_endpoint(body: MaterialAnalysisInput):
 )
 async def advisory_fit_endpoint(body: AdvisoryFitInput):
     return await analyze_advisory_fit(body)
+
+
+@app.post(
+    "/skill-gap-guidance/generate",
+    response_model=SkillGapGuidanceResult,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Skill-gap guidance provider returned an invalid response"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Skill-gap guidance provider timed out"},
+    },
+)
+async def skill_gap_guidance_endpoint(body: SkillGapGuidanceInput):
+    return await analyze_skill_gap_guidance(body)
+
+
+@app.post(
+    "/skill-gap-guidance/stream",
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Skill-gap guidance provider returned an invalid response"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Skill-gap guidance provider timed out"},
+    },
+)
+async def skill_gap_guidance_stream_endpoint(body: SkillGapGuidanceInput):
+    return await stream_skill_gap_guidance(body)
+
+
+@app.post(
+    "/contributor-matching/generate",
+    response_model=ContributorMatchingResult,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Contributor matching provider returned an invalid response"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Contributor matching provider timed out"},
+    },
+)
+async def contributor_matching_endpoint(body: ContributorMatchingInput):
+    return await analyze_contributor_matching(body)
 
 
 @app.get("/health")
