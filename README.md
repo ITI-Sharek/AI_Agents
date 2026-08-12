@@ -58,6 +58,22 @@ provider call. Provider limits return `NOT_STARTED_SYSTEM_LIMIT`; timeouts and
 invalid output fail with safe 504/502 responses. The backend remains the owner
 of Fit Band derivation, persistence, and every owner decision.
 
+## Skill Gap Guidance Contract
+
+`POST /skill-gap-guidance/generate` and `POST /skill-gap-guidance/stream` are
+internal bearer-authenticated endpoints. NestJS sends a fixed published
+Contribution Request requirement snapshot, approved skills, bounded evidence,
+and an exact evidence allowlist under `skill-gap-guidance-v1`.
+
+The result is educational guidance only: missing or below-target skills,
+recommended technologies, source-backed learning resources, practice projects,
+optional improvement steps, and safe metadata. Missing means not evidenced in
+the supplied snapshot. The service never emits or changes eligibility,
+Application state, owner decisions, score, or rank. Empty evidence returns
+`NOT_STARTED_NO_ASSESSABLE_EVIDENCE`; system limits return
+`NOT_STARTED_SYSTEM_LIMIT`; malformed and timed-out provider output fails
+closed.
+
 ## Tests
 
 ```bash

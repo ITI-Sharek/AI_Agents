@@ -20,6 +20,14 @@ from sharek_agents.agents.skill_profiling.schemas import (
 )
 from sharek_agents.agents.advisory_fit.endpoint import analyze_advisory_fit
 from sharek_agents.agents.advisory_fit.schemas import AdvisoryFitInput, AdvisoryFitResult
+from sharek_agents.agents.skill_gap_guidance.endpoint import (
+    analyze_skill_gap_guidance,
+    stream_skill_gap_guidance,
+)
+from sharek_agents.agents.skill_gap_guidance.schemas import (
+    SkillGapGuidanceInput,
+    SkillGapGuidanceResult,
+)
 
 app = FastAPI(title="Share-k AI Agents", version="0.1.0")
 internal_auth = HTTPBearer(auto_error=False)
@@ -92,3 +100,36 @@ async def advisory_fit_assessment(
     _authenticated: None = Depends(require_internal_auth),
 ) -> AdvisoryFitResult:
     return await analyze_advisory_fit(request)
+
+
+@app.post(
+    "/skill-gap-guidance/generate",
+    response_model=SkillGapGuidanceResult,
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider output was invalid"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def skill_gap_guidance_endpoint(
+    request: SkillGapGuidanceInput,
+    _authenticated: None = Depends(require_internal_auth),
+) -> SkillGapGuidanceResult:
+    return await analyze_skill_gap_guidance(request)
+
+
+@app.post(
+    "/skill-gap-guidance/stream",
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider output was invalid"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def skill_gap_guidance_stream_endpoint(
+    request: SkillGapGuidanceInput,
+    _authenticated: None = Depends(require_internal_auth),
+):
+    return await stream_skill_gap_guidance(request)
