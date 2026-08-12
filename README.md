@@ -74,6 +74,15 @@ Application state, owner decisions, score, or rank. Empty evidence returns
 `NOT_STARTED_SYSTEM_LIMIT`; malformed and timed-out provider output fails
 closed.
 
+## Contributor Matching Contract
+
+`POST /contributor-matching/generate` accepts a fixed published-request
+snapshot, active contributors with approved skills, verified reputation facts,
+and an exact evidence allowlist. It returns ranked recommendations with bounded
+scores, categorical confidence, approved matched skills, explanations, and
+exact evidence citations. The service never authorizes, selects, invites,
+notifies, or persists contributors; NestJS owns those decisions and writes.
+
 ## Tests
 
 ```bash

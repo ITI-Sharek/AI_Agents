@@ -28,6 +28,13 @@ from sharek_agents.agents.skill_gap_guidance.schemas import (
     SkillGapGuidanceInput,
     SkillGapGuidanceResult,
 )
+from sharek_agents.agents.contributor_matching.endpoint import (
+    analyze_contributor_matching,
+)
+from sharek_agents.agents.contributor_matching.schemas import (
+    ContributorMatchingInput,
+    ContributorMatchingResult,
+)
 
 app = FastAPI(title="Share-k AI Agents", version="0.1.0")
 internal_auth = HTTPBearer(auto_error=False)
@@ -133,3 +140,20 @@ async def skill_gap_guidance_stream_endpoint(
     _authenticated: None = Depends(require_internal_auth),
 ):
     return await stream_skill_gap_guidance(request)
+
+
+@app.post(
+    "/contributor-matching/generate",
+    response_model=ContributorMatchingResult,
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider output was invalid"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def contributor_matching_endpoint(
+    request: ContributorMatchingInput,
+    _authenticated: None = Depends(require_internal_auth),
+) -> ContributorMatchingResult:
+    return await analyze_contributor_matching(request)
