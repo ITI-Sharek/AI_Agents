@@ -1,371 +1,292 @@
-from datetime import datetime
+from __future__ import annotations
+
 import asyncio
+import os
 
 import httpx
 import pytest
+from groq import APIStatusError, RateLimitError
 from pydantic import ValidationError
 
 from sharek_agents.agents.advisory_fit.schemas import (
     AdvisoryFitFinding,
     AdvisoryFitInput,
-    AdvisoryFitMetadata,
     AdvisoryFitProviderOutput,
-    AdvisoryFitResult,
 )
 from sharek_agents.agents.advisory_fit.service import (
     AdvisoryFitProviderError,
-    AdvisoryFitProviderResponse,
     AdvisoryFitProviderSystemLimit,
-    AdvisoryFitProviderTimeout,
-    _invoke_provider,
+    _bounded_timeout_seconds,
     generate_advisory_fit,
 )
+from sharek_agents.agents.advisory_fit import service as advisory_service
 from sharek_agents.main import app
 
 
-def post_json(path: str, *, headers: dict[str, str] | None = None, json=None):
-    async def request():
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
-        ) as client:
-            return await client.post(path, headers=headers, json=json)
-
-    return asyncio.run(request())
-
-
-def assessment_request_payload() -> dict:
+def payload() -> dict:
     return {
-        "assessmentRequestId": "00000000-0000-4000-8000-000000000001",
+        "assessmentRequestId": "assessment-1",
         "requirements": [
-            {
-                "id": "00000000-0000-4000-8000-000000000002",
-                "kind": "required",
-                "position": 0,
-                "text": "NestJS",
-            }
+            {"id": "req-1", "kind": "required", "position": 0, "text": "NestJS"},
+            {"id": "req-2", "kind": "preferred", "position": 1, "text": "Redis"},
         ],
         "evidence": [
             {
-                "skillProfileId": "00000000-0000-4000-8000-000000000003",
-                "name": "NestJS",
-                "evidenceSources": {"evidenceIds": ["github:evidence-1"]},
+                "evidenceId": "github:1",
+                "type": "approved_skill",
+                "label": "NestJS",
+                "summary": "Bounded authorized evidence summary.",
             }
         ],
-        "allowedEvidenceIds": ["github:evidence-1"],
-        "requestedAt": "2026-08-02T12:00:00.000Z",
+        "allowedEvidenceIds": ["github:1"],
+        "requestedAt": "2026-08-05T12:00:00.000Z",
         "contractVersion": "advisory-fit-v1",
     }
 
 
-def test_accepts_the_backend_assessment_request_contract() -> None:
-    request = AdvisoryFitInput.model_validate(assessment_request_payload())
-
-    assert request.assessment_request_id.endswith("0001")
-    assert request.requirements[0].kind == "required"
-    assert request.allowed_evidence_ids == ["github:evidence-1"]
-    assert request.requested_at == datetime.fromisoformat("2026-08-02T12:00:00+00:00")
-
-
-def completed_provider_output() -> AdvisoryFitProviderOutput:
+def output() -> AdvisoryFitProviderOutput:
     return AdvisoryFitProviderOutput(
         findings=[
             AdvisoryFitFinding(
-                requirementId="00000000-0000-4000-8000-000000000002",
+                requirementId="req-1",
                 requirementKind="required",
                 finding="SUPPORTED",
                 confidence="HIGH",
-                citations=["github:evidence-1"],
+                citations=["github:1"],
                 uncertainty=[],
-                explanation="The supplied evidence supports the requirement.",
-            )
+                explanation="The fixed evidence supports this Requirement.",
+            ),
+            AdvisoryFitFinding(
+                requirementId="req-2",
+                requirementKind="preferred",
+                finding="INCONCLUSIVE",
+                confidence="LOW",
+                citations=["github:1"],
+                uncertainty=["The evidence is limited."],
+                explanation="The fixed evidence is inconclusive.",
+            ),
         ]
     )
 
 
-def test_returns_no_assessable_evidence_without_calling_the_provider() -> None:
+def test_accepts_exact_backend_contract_and_forbids_extra_fields() -> None:
+    request = AdvisoryFitInput.model_validate(payload())
+    assert request.requirements[1].kind == "preferred"
+    with pytest.raises(ValidationError):
+        AdvisoryFitInput.model_validate({**payload(), "applicationStatus": "ACCEPTED"})
+
+
+def test_no_evidence_returns_not_started_without_provider_call() -> None:
     calls = 0
 
     async def provider(_request: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
         nonlocal calls
         calls += 1
-        return completed_provider_output()
+        return output()
 
     request = AdvisoryFitInput.model_validate(
-        {**assessment_request_payload(), "allowedEvidenceIds": []}
+        {**payload(), "evidence": [], "allowedEvidenceIds": []}
     )
-
     result = asyncio.run(generate_advisory_fit(request, provider=provider))
-
     assert result.status == "NOT_STARTED_NO_ASSESSABLE_EVIDENCE"
-    assert result.findings == []
     assert calls == 0
 
 
-def test_returns_completed_findings_and_safe_metadata() -> None:
+def test_returns_complete_decision_neutral_findings() -> None:
     async def provider(_request: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
-        return completed_provider_output()
+        return output()
 
-    request = AdvisoryFitInput.model_validate(assessment_request_payload())
-    result = asyncio.run(generate_advisory_fit(request, provider=provider))
-
-    assert result.status == "COMPLETED"
-    assert result.findings[0].requirement_id == request.requirements[0].id
-    assert result.metadata is not None
-    assert result.metadata.provider == "deterministic-fake"
-    assert result.metadata.prompt_version == "advisory-fit-v1"
-
-
-def test_preserves_preferred_classification_confidence_and_uncertainty() -> None:
-    payload = assessment_request_payload()
-    payload["requirements"].append(
-        {
-            "id": "00000000-0000-4000-8000-000000000004",
-            "kind": "preferred",
-            "position": 1,
-            "text": "GraphQL",
-        }
+    result = asyncio.run(
+        generate_advisory_fit(AdvisoryFitInput.model_validate(payload()), provider=provider)
     )
-    request = AdvisoryFitInput.model_validate(payload)
+    body = result.model_dump(mode="json", by_alias=True)
+    assert body["status"] == "COMPLETED"
+    assert [item["requirementId"] for item in body["findings"]] == ["req-1", "req-2"]
+    prohibited = {"score", "rank", "eligibility", "recommendation", "applicationStatus"}
+    assert prohibited.isdisjoint(body)
 
+
+@pytest.mark.parametrize("mode", ["missing", "duplicate", "unknown"])
+def test_rejects_missing_duplicate_and_unknown_requirement_ids(mode) -> None:
     async def provider(_request: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
-        return AdvisoryFitProviderOutput(
-            findings=[
-                *completed_provider_output().findings,
-                AdvisoryFitFinding(
-                    requirementId="00000000-0000-4000-8000-000000000004",
-                    requirementKind="preferred",
-                    finding="INCONCLUSIVE",
-                    confidence="LOW",
-                    citations=["github:evidence-1"],
-                    uncertainty=["The supplied evidence does not mention GraphQL."],
-                    explanation="The authorized evidence is inconclusive for this preferred Requirement.",
-                ),
-            ]
+        value = output()
+        if mode == "missing":
+            value.findings.pop()
+        elif mode == "duplicate":
+            value.findings[1].requirement_id = "req-1"
+        else:
+            value.findings[1].requirement_id = "req-unknown"
+        return value
+
+    with pytest.raises(AdvisoryFitProviderError, match="cover"):
+        asyncio.run(
+            generate_advisory_fit(
+                AdvisoryFitInput.model_validate(payload()), provider=provider
+            )
         )
 
-    result = asyncio.run(generate_advisory_fit(request, provider=provider))
 
-    assert result.findings[1].requirement_kind == "preferred"
-    assert result.findings[1].confidence == "LOW"
-    assert result.findings[1].uncertainty
+def test_rejects_changed_classification_and_unauthorized_citations() -> None:
+    async def changed_kind(_request: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
+        value = output()
+        value.findings[0].requirement_kind = "preferred"
+        return value
 
+    async def private_citation(_request: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
+        value = output()
+        value.findings[0].citations = ["github:private"]
+        return value
 
-def test_rejects_provider_citations_outside_the_allowed_evidence_scope() -> None:
-    async def provider(_request: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
-        output = completed_provider_output()
-        output.findings[0].citations = ["invented-evidence"]
-        return output
-
-    request = AdvisoryFitInput.model_validate(assessment_request_payload())
-
+    request = AdvisoryFitInput.model_validate(payload())
+    with pytest.raises(AdvisoryFitProviderError, match="classification"):
+        asyncio.run(generate_advisory_fit(request, provider=changed_kind))
     with pytest.raises(AdvisoryFitProviderError, match="citation"):
-        asyncio.run(generate_advisory_fit(request, provider=provider))
+        asyncio.run(generate_advisory_fit(request, provider=private_citation))
 
 
-def test_preserves_a_provider_system_limit_without_an_attempt() -> None:
+def test_system_limit_is_not_a_negative_finding() -> None:
     async def provider(_request: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
-        raise AdvisoryFitProviderSystemLimit("limit reached")
+        raise AdvisoryFitProviderSystemLimit("limited")
 
-    request = AdvisoryFitInput.model_validate(assessment_request_payload())
-
-    result = asyncio.run(generate_advisory_fit(request, provider=provider))
-
+    result = asyncio.run(
+        generate_advisory_fit(AdvisoryFitInput.model_validate(payload()), provider=provider)
+    )
     assert result.status == "NOT_STARTED_SYSTEM_LIMIT"
     assert result.findings == []
 
 
-def test_maps_gateway_rate_limits_to_system_limit(monkeypatch) -> None:
-    request = httpx.Request("POST", "https://gateway.test/chat")
-    response = httpx.Response(429, request=request)
-
-    class LimitedGateway:
-        async def generate_structured(self, **_kwargs):
-            raise httpx.HTTPStatusError(
-                "rate limited",
-                request=request,
-                response=response,
-            )
-
-    monkeypatch.setattr(
-        "sharek_agents.common.llm.get_llm",
-        lambda: LimitedGateway(),
-    )
-
-    request_data = AdvisoryFitInput.model_validate(assessment_request_payload())
-
-    with pytest.raises(AdvisoryFitProviderSystemLimit):
-        asyncio.run(_invoke_provider(request_data))
-
-
-def test_default_provider_uses_the_strict_output_schema_and_truthful_metadata(
-    monkeypatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    class StrictProvider:
-        def invoke(self, _prompt: str):
-            raise AssertionError("plain-text generation must not be used")
-
-        async def generate_structured(
-            self,
-            *,
-            system_prompt,
-            user_prompt,
-            response_model,
-        ):
-            captured["system_prompt"] = system_prompt
-            captured["user_prompt"] = user_prompt
-            captured["response_model"] = response_model
-            return completed_provider_output()
-
-    monkeypatch.setattr(
-        "sharek_agents.common.llm.get_llm",
-        lambda: StrictProvider(),
-    )
-    monkeypatch.setattr(
-        "sharek_agents.common.llm.get_provider_metadata",
-        lambda: ("openrouter", "openrouter/free"),
-    )
-
-    request_data = AdvisoryFitInput.model_validate(assessment_request_payload())
-    response = asyncio.run(_invoke_provider(request_data))
-
-    assert captured["response_model"] is AdvisoryFitProviderOutput
-    assert "Return only one JSON object" in str(captured["system_prompt"])
-    assert "ASSESSMENT REQUEST DATA" in str(captured["user_prompt"])
-    assert response.output == completed_provider_output()
-    assert response.provider == "openrouter"
-    assert response.model == "openrouter/free"
-
-
-def test_retries_one_transient_provider_failure(monkeypatch) -> None:
+def test_retries_once_and_then_succeeds(monkeypatch) -> None:
+    monkeypatch.setenv("AI_ADVISORY_FIT_MAX_RETRIES", "1")
     calls = 0
 
     async def provider(_request: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
         nonlocal calls
         calls += 1
         if calls == 1:
-            raise AdvisoryFitProviderTimeout("temporary timeout")
-        return completed_provider_output()
+            raise AdvisoryFitProviderError("transient")
+        return output()
 
-    monkeypatch.setattr(
-        "sharek_agents.config.settings.ai_advisory_fit_max_retries",
-        1,
+    asyncio.run(
+        generate_advisory_fit(AdvisoryFitInput.model_validate(payload()), provider=provider)
     )
-
-    request = AdvisoryFitInput.model_validate(assessment_request_payload())
-    result = asyncio.run(generate_advisory_fit(request, provider=provider))
-
-    assert result.status == "COMPLETED"
     assert calls == 2
 
 
-def test_fails_closed_after_the_bounded_retry_count(monkeypatch) -> None:
-    calls = 0
-
-    async def provider(_request: AdvisoryFitInput) -> AdvisoryFitProviderOutput:
-        nonlocal calls
-        calls += 1
-        raise AdvisoryFitProviderError("provider unavailable")
-
-    monkeypatch.setattr(
-        "sharek_agents.config.settings.ai_advisory_fit_max_retries",
-        1,
-    )
-
-    request = AdvisoryFitInput.model_validate(assessment_request_payload())
-
-    with pytest.raises(AdvisoryFitProviderError):
-        asyncio.run(generate_advisory_fit(request, provider=provider))
-
-    assert calls == 2
+@pytest.mark.parametrize(
+    "configured,expected",
+    [("0", 60), ("-1", 60), ("not-an-integer", 60), ("1", 1), ("180", 180), ("181", 180)],
+)
+def test_timeout_is_positive_and_bounded(monkeypatch, configured, expected) -> None:
+    monkeypatch.setenv("AI_ADVISORY_FIT_TIMEOUT_SECONDS", configured)
+    assert _bounded_timeout_seconds() == expected
 
 
-def test_rejects_forbidden_aggregate_fit_output() -> None:
-    payload = {
-        "status": "COMPLETED",
-        "findings": [completed_provider_output().findings[0].model_dump()],
-        "metadata": {
-            "provider": "test-provider",
-            "model": "test-model",
-            "promptVersion": "advisory-fit-v1",
-            "schemaVersion": "advisory-fit-v1",
-            "serviceVersion": "test-service",
-        },
-        "fitPercentage": 100,
+def post(path: str, *, token: str | None, body: dict):
+    async def request():
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post(path, headers=headers, json=body)
+
+    return asyncio.run(request())
+
+
+def test_endpoint_requires_the_shared_service_token(monkeypatch) -> None:
+    monkeypatch.setenv("AI_SERVICE_AUTH_TOKEN", "service-secret")
+    assert post("/advisory-fit/assess", token=None, body=payload()).status_code == 401
+    assert post("/advisory-fit/assess", token="wrong", body=payload()).status_code == 401
+
+
+def test_endpoint_reports_missing_server_auth_configuration(monkeypatch) -> None:
+    monkeypatch.delenv("AI_SERVICE_AUTH_TOKEN", raising=False)
+    response = post("/advisory-fit/assess", token="anything", body=payload())
+    assert response.status_code == 503
+    assert "PRIVATE" not in response.text
+
+
+def test_endpoint_validates_before_any_provider_call(monkeypatch) -> None:
+    monkeypatch.setenv("AI_SERVICE_AUTH_TOKEN", "service-secret")
+    invalid = payload()
+    invalid["contractVersion"] = "eligibility-v1"
+    response = post("/advisory-fit/assess", token="service-secret", body=invalid)
+    assert response.status_code == 422
+    assert "PRIVATE" not in response.text
+
+
+@pytest.mark.parametrize("mode", ["opaque", "duplicate", "missing_allowlist", "extra_allowlist"])
+def test_endpoint_rejects_opaque_or_mismatched_evidence_capsules(monkeypatch, mode) -> None:
+    monkeypatch.setenv("AI_SERVICE_AUTH_TOKEN", "service-secret")
+    invalid = payload()
+    if mode == "opaque":
+        invalid["evidence"] = [{"evidenceId": "github:1", "privateMarker": "PRIVATE"}]
+    elif mode == "duplicate":
+        invalid["evidence"].append(dict(invalid["evidence"][0]))
+    elif mode == "missing_allowlist":
+        invalid["allowedEvidenceIds"] = []
+    else:
+        invalid["allowedEvidenceIds"] = ["github:1", "github:unknown"]
+    response = post("/advisory-fit/assess", token="service-secret", body=invalid)
+    assert response.status_code == 422
+    assert "PRIVATE" not in response.text
+
+
+def sdk_error(error_type, status_code: int, body: dict):
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    response = httpx.Response(status_code, request=request)
+    return error_type("provider failed", response=response, body=body)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        sdk_error(RateLimitError, 429, {"error": {"type": "rate_limit_error"}}),
+        sdk_error(APIStatusError, 402, {"error": {"code": "payment_required"}}),
+        sdk_error(
+            APIStatusError,
+            403,
+            {"error": {"code": "insufficient_quota", "message": "credits exhausted"}},
+        ),
+    ],
+)
+def test_endpoint_maps_real_groq_quota_shapes_to_system_limit(monkeypatch, error) -> None:
+    monkeypatch.setenv("AI_SERVICE_AUTH_TOKEN", "service-secret")
+
+    class RaisingModel:
+        def with_structured_output(self, _schema):
+            return self
+
+        async def ainvoke(self, _messages):
+            raise error
+
+    monkeypatch.setattr(advisory_service, "ChatGroq", lambda **_kwargs: RaisingModel())
+    response = post("/advisory-fit/assess", token="service-secret", body=payload())
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "NOT_STARTED_SYSTEM_LIMIT",
+        "findings": [],
+        "metadata": None,
     }
 
-    with pytest.raises(ValidationError):
-        AdvisoryFitResult.model_validate(payload)
 
-
-def test_fails_closed_for_malformed_provider_response_metadata() -> None:
-    async def provider(
-        _request: AdvisoryFitInput,
-    ) -> AdvisoryFitProviderResponse:
-        return AdvisoryFitProviderResponse(
-            output=completed_provider_output(),
-            provider="",
-            model="test-model",
-        )
-
-    request = AdvisoryFitInput.model_validate(assessment_request_payload())
-
-    with pytest.raises(AdvisoryFitProviderError):
-        asyncio.run(generate_advisory_fit(request, provider=provider))
-
-
-def test_internal_endpoint_rejects_missing_credentials(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "sharek_agents.security.settings.ai_service_auth_token",
-        "internal-test-token-that-is-long-enough",
+def test_endpoint_keeps_non_quota_groq_errors_generic(monkeypatch) -> None:
+    monkeypatch.setenv("AI_SERVICE_AUTH_TOKEN", "service-secret")
+    error = sdk_error(
+        APIStatusError,
+        500,
+        {"error": {"type": "server_error", "message": "PRIVATE provider detail"}},
     )
 
-    response = post_json(
-        "/advisory-fit/assess",
-        json=assessment_request_payload(),
-    )
+    class RaisingModel:
+        def with_structured_output(self, _schema):
+            return self
 
-    assert response.status_code == 401
+        async def ainvoke(self, _messages):
+            raise error
 
-
-def test_internal_endpoint_returns_the_backend_advisory_fit_contract(
-    monkeypatch,
-) -> None:
-    token = "internal-test-token-that-is-long-enough"
-    expected = AdvisoryFitResult(
-        status="COMPLETED",
-        findings=completed_provider_output().findings,
-        metadata=AdvisoryFitMetadata(
-            provider="test-provider",
-            model="test-model",
-            promptVersion="test-prompt",
-            schemaVersion="advisory-fit-v1",
-            serviceVersion="test-service",
-        ),
-    )
-
-    async def completed_assessment(
-        _request: AdvisoryFitInput,
-    ) -> AdvisoryFitResult:
-        return expected
-
-    monkeypatch.setattr(
-        "sharek_agents.security.settings.ai_service_auth_token",
-        token,
-    )
-    monkeypatch.setattr(
-        "sharek_agents.main.analyze_advisory_fit",
-        completed_assessment,
-    )
-
-    response = post_json(
-        "/advisory-fit/assess",
-        headers={"Authorization": f"Bearer {token}"},
-        json=assessment_request_payload(),
-    )
-
-    assert response.status_code == 200
-    assert response.json() == expected.model_dump(mode="json", by_alias=True)
+    monkeypatch.setattr(advisory_service, "ChatGroq", lambda **_kwargs: RaisingModel())
+    response = post("/advisory-fit/assess", token="service-secret", body=payload())
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": "Advisory Fit provider returned an invalid response"
+    }
+    assert "PRIVATE" not in response.text

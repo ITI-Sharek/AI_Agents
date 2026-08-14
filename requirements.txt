@@ -1,7 +1,6 @@
--e .
 fastapi
-graphifyy
 httpx
+graphifyy
 uvicorn
 PyGithub
 langchain
@@ -9,9 +8,11 @@ langchain-community
 langchain-openai
 langchain-openrouter
 langchain-anthropic
+langchain-groq
 langgraph
 python-dotenv
-radon 
-pylint
 pypdf
 python-docx
+radon
+pylint
+pytest

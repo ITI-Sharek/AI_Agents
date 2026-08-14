@@ -4,14 +4,6 @@ FastAPI service for evidence-backed Share-k AI workflows. The NestJS backend
 owns authentication, business state, and final decisions. This service returns
 structured recommendations only.
 
-The internal `/contributor-matching/generate` endpoint accepts a fixed
-published Contribution Request snapshot, active contributors with approved
-skills, verified reputation signals, and an explicit evidence allowlist. It
-returns ranked recommendations with categorical confidence, explanations,
-matched approved skills, and exact evidence citations. The FastAPI service does
-not authorize, select, notify, or persist contributors; NestJS owns those
-decisions and writes.
-
 ## Product Documentation
 
 Shared product context, accepted decisions, and sprint plans live in the
@@ -21,189 +13,17 @@ reading order.
 
 ## Local Run
 
-The skill-profile workflow uses two local processes:
-
-- the AI orchestrator on port `8010`;
-- the code-analysis service on port `8000`.
-
-Both processes must receive the same internal bearer token. The orchestrator
-reads it as `ANALYSIS_SERVICE_AUTH_TOKEN` when calling the analysis service;
-the analysis service validates it as `AI_SERVICE_AUTH_TOKEN`. Each token must
-be at least 32 characters long.
-
-Create `ai/.env` from `.env.example` and set both token variables to the same
-value. Model-provider configuration is selected by `AI_PROVIDER`:
-
-- `openrouter` (default) requires `OPENROUTER_API_KEY` and optionally
-  `OPENROUTER_MODEL`;
-- `student-api-gateway` requires `GETAWAY_ITI_KEY`, `GETAWAY_BASE_URL`, and
-  `GETAWAY_MODEL`.
-
-The service fails with a clear configuration error when the selected
-provider's credential is missing; it never constructs an empty bearer header.
-The default model is OpenRouter's `openrouter/free` router so stale individual
-free-model IDs do not silently strand background jobs. Provider SDK retries are
-disabled; the skill-profile pipeline and BullMQ worker own the bounded retries.
-
-Install the code-analysis service and AI dependencies:
-
 ```bash
-python3 -m pip install -e ./code-analysis-service
 python3 -m pip install -r requirements.txt
-docker build -t code-analysis-runner:latest \
-  -f code-analysis-service/src/code_analysis_service/Dockerfile.analysis \
-  code-analysis-service/src/code_analysis_service
-```
-
-Start both local services with one command:
-
-```bash
-./run-services.sh
-```
-
-The launcher loads `.env` through `dotenv`, so the same command works from
-Bash and Fish. It prefers executables from `ai/.venv`, prefixes output with
-`[analysis]` or `[ai]`, and shuts down both processes when you press `Ctrl+C`
-or when either service exits unexpectedly.
-
-To run the processes separately for debugging, start the code-analysis
-service in one terminal:
-
-```bash
-dotenv run -- code-analysis-api
-```
-
-The runner image is required whenever Docker is available. Without it, Docker's
-image-pull error can look like repository authentication failure. Private
-repositories remain analyzable from the bounded evidence snapshot supplied by
-NestJS when clone-based enrichment is unavailable; GitHub App installation
-tokens are not persisted or forwarded across the backend module boundary.
-
-Then start the AI orchestrator in a second terminal:
-
-```bash
-dotenv run -- env PYTHONPATH=src uvicorn sharek_agents.main:app \
-  --reload \
-  --host 0.0.0.0 \
-  --port 8010
+export GROQ_API_KEY="your-rotated-groq-key"
+export AI_SERVICE_AUTH_TOKEN="a-long-random-internal-token"
+export LLM_PROVIDER="groq"
+export LLM_MODEL="openai/gpt-oss-120b"
+PYTHONPATH=src uvicorn sharek_agents.main:app --reload --port 8010
 ```
 
 Configure the NestJS backend with the same `AI_SERVICE_AUTH_TOKEN` and with
 `AI_SERVICE_URL=http://localhost:8010`.
-
-`dotenv run` is shell-independent and is the recommended way to load `.env`;
-it works in Fish as well as Bash. The AI orchestrator sends skill-profile
-prompts through the configured provider and validates structured output against
-the response schema before returning it to NestJS.
-
-### 2026-08-03 skill-profile gateway fix
-
-The skill-profile endpoint previously returned `502` after successful code
-analysis because provider selection and structured-output handling were
-inconsistent. A dormant Student API Gateway implementation was present, while
-runtime environments could be configured for either OpenRouter or that gateway.
-
-The fix made these implementation changes:
-
-- `common/llm.py` now selects OpenRouter or the Student API Gateway from
-  `AI_PROVIDER` and validates that provider's credential before making a call.
-- The gateway client has an asynchronous structured-generation operation that
-  includes the Pydantic JSON schema in the prompt, requires non-empty
-  `output_text`, accepts plain JSON or one surrounding JSON code fence, and
-  validates the result before returning it.
-- `contract_service.py` calls that operation directly instead of the
-  LangChain-only `with_structured_output()` interface.
-- The no-evidence guardrail now recognizes authorized NestJS snapshot evidence
-  independently from optional framework/static/graph enrichment, allowing
-  private repositories to produce a profile without forwarding GitHub App
-  installation credentials across module boundaries.
-- Skill-profile audit metadata reports the selected provider and its actual
-  configured model, including weak-evidence results.
-- `main.py` records provider exception tracebacks server-side while preserving
-  the contract-safe generic `502` response body.
-- `tests/test_skill_profile_security.py` covers provider selection, gateway
-  parsing, and the public `/skill-profiles/generate` path through a substituted
-  external response. The test does not call GitHub or the analysis service.
-
-Timeout, bounded retry, evidence-citation validation, maximum-skill validation,
-and the document-understanding client were not changed.
-
-## Advisory Fit Contract
-
-`POST /advisory-fit/assess` is an internal, bearer-authenticated endpoint. It
-accepts the backend's immutable Requirement and authorized Evidence Snapshots:
-`assessmentRequestId`, `requirements`, `evidence`, `allowedEvidenceIds`,
-`requestedAt`, and `contractVersion: "advisory-fit-v1"`.
-
-The configured provider is called through the shared strict structured-output
-adapter with `AdvisoryFitProviderOutput` as the JSON Schema. This prevents
-plausible but contract-incompatible field names from being accepted, and the
-response metadata records the provider and model selected by `AI_PROVIDER`.
-
-Completed responses contain exactly one finding per Requirement. Findings use
-`SUPPORTED`, `PARTIALLY_SUPPORTED`, `NOT_EVIDENCED`, or `INCONCLUSIVE`, with
-categorical confidence, allowed evidence citations, uncertainty, and a concise
-explanation. Technical metadata is returned under `metadata`.
-
-The AI service never returns a score, Fit Band, eligibility result, ranking,
-recommendation, Application status, or owner decision. NestJS validates the
-findings and derives the Fit Band. Empty `allowedEvidenceIds` returns
-`NOT_STARTED_NO_ASSESSABLE_EVIDENCE` without a provider call; a configured
-provider/system safeguard may return `NOT_STARTED_SYSTEM_LIMIT`.
-
-## Skill Gap Guidance Contract
-
-`POST /skill-gap-guidance/generate` and `POST /skill-gap-guidance/stream` are
-internal bearer-authenticated endpoints for the explicit contributor guidance
-workflow defined by ADR 0014. NestJS sends a fixed published Contribution
-Request requirement snapshot, approved skill snapshot, bounded source capsules,
-and an evidence allowlist under `skill-gap-guidance-v1`.
-
-Completed output is strict structured guidance: missing or below-target skills,
-recommended technologies, source-backed learning resources, practice projects,
-optional source-backed improvement steps, source attribution, and safe technical
-metadata. “Missing” means not evidenced in the supplied snapshot; the service
-never returns eligibility, rejection, score, rank, tier, Application status, or
-Owner Decision fields. URLs and improvement durations are omitted unless the
-the bounded retrieval context supports them.
-
-Learning resources are retrieved from a bounded in-service catalog of official
-documentation and tutorials using the fixed Requirement and approved-skill
-snapshot. The provider may return only exact URLs from that retrieved set; an
-unmatched resource is rejected before the result crosses back to NestJS.
-
-The stream endpoint emits one `guidance.completed` SSE event containing the
-validated complete result. Empty source scope returns
-`NOT_STARTED_NO_ASSESSABLE_EVIDENCE`; provider/system limits return
-`NOT_STARTED_SYSTEM_LIMIT`; malformed or timed-out provider output fails closed.
-The AI service does not persist business state or use the retired
-Application-linked `SkillGapGuidance` entity.
-
-## Material Analysis Contract
-
-`POST /material-analysis/analyze` is an internal, bearer-authenticated
-endpoint. NestJS sends an explicit `material-draft-v1` Analysis Run containing
-up to the configured Analysis Set limit of exact Project Material IDs/versions
-and their private bytes. The service extracts only Markdown, DOCX, and
-text-based PDF content and rejects a run once combined extracted text exceeds
-the configured character limit.
-
-Document text is untrusted evidence: the prompt treats it as data, follows no
-embedded instructions, and uses no links, macros, tools, or remote resources.
-The response is strict structured output containing only draft Project fields
-or draft Contribution Request fields. Every suggestion cites selected Material
-IDs and versions; NestJS validates that provenance again before persistence.
-The backend stores suggestions privately and never applies them automatically.
-The AI service builds a request-scoped chunk/vector index and returns the
-validated chunks; NestJS persists those vectors in PostgreSQL/pgvector under
-the Analysis Run. Retrieval is limited to the selected Analysis Set, and raw
-chunks are deleted when their source Material is deleted while non-content
-suggestion audit remains.
-
-Entitlement, queue lifecycle, source cleanup, and adoption authorization remain
-NestJS responsibilities. Adoption calls the owning Project or Contribution
-Request service only after an explicit owner review command; the AI service
-never mutates business rows.
 
 ## Skill Profiling Contract
 
@@ -213,11 +33,6 @@ contributor-specific authorship signals. Generated skills must cite exact
 `evidenceId` values from the request; unmatched citations are discarded and the
 NestJS adapter validates them again.
 
-NestJS sends `role: "contributor"` for contributor profile generation. The
-schema defaults omitted legacy roles to `contributor`; an unavailable GitHub
-login remains valid evidence of missing attribution rather than causing HTTP
-422.
-
 Repository-wide languages, stars, or commits are not treated as contributor
 authorship. Missing attributable activity produces weak evidence and a
 `needs_more_evidence` recommendation.
@@ -226,9 +41,105 @@ Weak evidence is a valid structured response. Provider, timeout, or malformed
 model-output failures surface as service errors so the backend BullMQ worker can
 retry them and eventually record a safe failure state.
 
+## Advisory Fit Contract
+
+`POST /advisory-fit/assess` is an internal bearer-token endpoint consumed only
+by the NestJS backend. It accepts fixed Requirement and authorized Evidence
+snapshots and returns one bounded finding per Requirement. It never returns an
+Application decision, eligibility verdict, score, rank, or workflow mutation.
+
+Each evidence item is a strict bounded capsule with `evidenceId`, `type`,
+`label`, and an optional bounded summary. The allowlist must exactly match the
+unique capsule identifiers; opaque evidence objects and extra fields are
+rejected before provider work.
+
+No authorized evidence returns `NOT_STARTED_NO_ASSESSABLE_EVIDENCE` without a
+provider call. Provider limits return `NOT_STARTED_SYSTEM_LIMIT`; timeouts and
+invalid output fail with safe 504/502 responses. The backend remains the owner
+of Fit Band derivation, persistence, and every owner decision.
+
+## Requirement Inference Contract
+
+`POST /requirements/infer` is an internal bearer-token endpoint consumed only by
+the NestJS backend. It reads a Contribution Request — title, description,
+ordered requirement texts, technology tags, difficulty — and names the technical
+skills the work demands, each with the proficiency level it needs.
+
+**It never sees contributor data.** There is no contributor identifier,
+approved-skill list, or Application reference anywhere in the request or
+response schema, and `extra="forbid"` means a caller that started sending one
+gets a 422 rather than quietly handing it to a model. The agent is asked what
+the *work* demands; who might do it cannot be made its business without changing
+the schema.
+
+It returns **findings, never a verdict** — the same split ADR 0001 set for
+Advisory Fit. There is no `eligible`, `blocked`, `score`, or `rank` field and no
+place to put one. NestJS derives the eligibility decision itself from these rows
+and from its own frozen snapshot (DEC-078, ADR 0015).
+
+Each entry is `{ skillName, requiredLevel, kind, confidence, rationale }`:
+
+- `requiredLevel` is exactly `beginner | intermediate | advanced` — the three
+  platform levels, because the backend compares an approved proficiency against
+  it using a total order and a fourth level has no defined position in one.
+- `confidence` is exactly `high | medium | low`. Never a number or a percentage:
+  DEC-010 forbids presenting fit as a number, and a percentage invites the
+  reader to treat an inferred level as a measurement.
+- `skillName` is returned lowercase and space-collapsed, so the caller receives
+  one spelling per skill.
+
+The set is capped at 15 and duplicate names are collapsed keeping the first
+occurrence. Both are handled by truncation rather than rejection: the result is
+a draft the owner reviews and overrides before publication, and turning a
+verbose or sloppy answer into a 502 would leave them with nothing to edit. An
+empty set is a valid answer — a Request too vague to imply a skill must not be
+made to invent one; requiring at least one `required` row before publication is
+the backend's job.
+
+**Untrusted input.** Every part of the Request is owner-written text and is
+treated as data. It is JSON-encoded under a labelled heading, so a quote or
+newline cannot terminate a field and begin what reads as a new instruction
+section; the structured-output schema constrains the answer's shape; and **no
+tool is bound to the model**, so an injected "fetch this URL" has no mechanism
+to act through. A test asserts the run completes with the schema intact while
+any outbound HTTP from that code path raises.
+
+Missing token returns 401; an unconfigured server token returns 503 — an
+unconfigured server is not the caller's mistake. A provider timeout returns 504
+and invalid model output returns 502, and neither returns a partial set: half a
+bar is worse than no bar, because the owner cannot tell it is half. Provider
+detail never reaches the response body.
+
+## Material Analysis Contract
+
+`POST /material-analysis/analyze` accepts one owner-authorized, version-fixed
+analysis set and returns private draft suggestions with bounded provenance. It
+does not edit, publish, or assign a Project or Contribution Request. The NestJS
+backend validates the response and owns every adoption and persistence step.
+
+## Skill-gap Guidance Contract
+
+`POST /skill-gap-guidance/generate` returns source-scoped educational guidance
+for a contributor's explicit request. `POST /skill-gap-guidance/stream` carries
+the same structured request and emits one validated `guidance.completed` SSE
+event. Neither route returns eligibility, ranking, Application state, or an
+owner decision, and learning-resource URLs must come from supplied sources.
+
+## Matching Rank Contract
+
+`POST /matching/rank` reorders a shortlist already computed, authorized, and
+capped by the NestJS backend. Its output must be an exact permutation of the
+input Contribution Requests and may add only one bounded explanation per item.
+It cannot discover candidates, change the visible set, identify the
+contributor, return a score or percentage, or make an eligibility decision.
+Provider failures leave the deterministic backend order authoritative.
+
 ## Tests
 
 ```bash
 PYTHONPATH=src python3 -m pytest
 python3 -m compileall src
 ```
+
+No test makes a paid provider call. Provider behaviour is exercised through an
+injected fake or by monkeypatching `ChatGroq`.
