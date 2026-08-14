@@ -27,6 +27,19 @@ from sharek_agents.agents.requirement_inference.schemas import (
     RequirementInferenceInput,
     RequirementInferenceResult,
 )
+from sharek_agents.agents.material_analysis.endpoint import analyze_materials
+from sharek_agents.agents.material_analysis.schemas import (
+    MaterialAnalysisInput,
+    MaterialAnalysisResult,
+)
+from sharek_agents.agents.skill_gap_guidance.endpoint import (
+    analyze_skill_gap_guidance,
+    stream_skill_gap_guidance,
+)
+from sharek_agents.agents.skill_gap_guidance.schemas import (
+    SkillGapGuidanceInput,
+    SkillGapGuidanceResult,
+)
 
 app = FastAPI(title="Share-k AI Agents", version="0.1.0")
 internal_auth = HTTPBearer(auto_error=False)
@@ -123,3 +136,62 @@ async def requirement_inference(
     handed contributor data even by mistake.
     """
     return await analyze_requirement_inference(request)
+
+
+@app.post(
+    "/material-analysis/analyze",
+    response_model=MaterialAnalysisResult,
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider output was invalid"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def material_analysis(
+    request: MaterialAnalysisInput,
+    _authenticated: None = Depends(require_internal_auth),
+) -> MaterialAnalysisResult:
+    """Draft suggestions from owner-supplied Materials.
+
+    Produces private, individually adoptable suggestions only; nothing here
+    mutates or publishes a Project or a Contribution Request (DEC-039).
+    """
+    return await analyze_materials(request)
+
+
+@app.post(
+    "/skill-gap-guidance/generate",
+    response_model=SkillGapGuidanceResult,
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider output was invalid"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def skill_gap_guidance(
+    request: SkillGapGuidanceInput,
+    _authenticated: None = Depends(require_internal_auth),
+) -> SkillGapGuidanceResult:
+    """Educational guidance for a contributor who asked for it.
+
+    Source-attributed recommendations only: never an eligibility verdict, a
+    rank, or a change to any Application (ADR 0014, DEC-076).
+    """
+    return await analyze_skill_gap_guidance(request)
+
+
+@app.get(
+    "/skill-gap-guidance/stream",
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        503: {"description": "Service authentication is not configured"},
+    },
+)
+async def skill_gap_guidance_stream(
+    request: SkillGapGuidanceInput = Depends(),
+    _authenticated: None = Depends(require_internal_auth),
+):
+    """Final-result SSE transport for the same guidance contract."""
+    return await stream_skill_gap_guidance(request)

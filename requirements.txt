@@ -5,7 +5,14 @@ uvicorn
 PyGithub
 langchain
 langchain-community
+langchain-openai
+langchain-openrouter
+langchain-anthropic
+langchain-groq
 langgraph
 python-dotenv
-langchain-groq
+pypdf
+python-docx
+radon
+pylint
 pytest
