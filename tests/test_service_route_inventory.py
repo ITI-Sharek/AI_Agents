@@ -34,8 +34,15 @@ BACKEND_CALLED_ROUTES = {
     "/skill-profiles/generate",
 }
 
-#: Every route above is internal-only and must reject an unauthenticated call.
-GUARDED_POST_ROUTES = sorted(BACKEND_CALLED_ROUTES)
+#: Served and guarded, but not called by the backend yet. `/matching/rank` is
+#: consumed by ITI-Sharek/Sharek#121; until that lands, claiming the backend
+#: calls it would make the set above a false statement about the other
+#: repository. It still has to exist and still has to reject an anonymous
+#: caller, which is what the lists below cover.
+SERVED_NOT_YET_CALLED = {"/matching/rank"}
+
+#: Every internal route must reject an unauthenticated call, called or not.
+GUARDED_POST_ROUTES = sorted(BACKEND_CALLED_ROUTES | SERVED_NOT_YET_CALLED)
 
 
 def served_paths() -> set[str]:
@@ -54,8 +61,10 @@ def post(path: str, *, token: str | None, body: dict | None = None):
     return asyncio.run(request())
 
 
-def test_every_backend_called_route_is_served() -> None:
-    missing = sorted(BACKEND_CALLED_ROUTES - served_paths())
+def test_every_internal_route_is_served() -> None:
+    missing = sorted(
+        (BACKEND_CALLED_ROUTES | SERVED_NOT_YET_CALLED) - served_paths()
+    )
     assert not missing, (
         f"The backend calls {missing}, which this service no longer serves. "
         "Renaming or removing one of these breaks a shipped feature in "

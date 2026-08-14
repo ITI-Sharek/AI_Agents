@@ -27,6 +27,11 @@ from sharek_agents.agents.requirement_inference.schemas import (
     RequirementInferenceInput,
     RequirementInferenceResult,
 )
+from sharek_agents.agents.matching_rank.endpoint import analyze_matching_rank
+from sharek_agents.agents.matching_rank.schemas import (
+    MatchingRankInput,
+    MatchingRankResult,
+)
 from sharek_agents.agents.material_analysis.endpoint import analyze_materials
 from sharek_agents.agents.material_analysis.schemas import (
     MaterialAnalysisInput,
@@ -195,3 +200,27 @@ async def skill_gap_guidance_stream(
 ):
     """Final-result SSE transport for the same guidance contract."""
     return await stream_skill_gap_guidance(request)
+
+
+@app.post(
+    "/matching/rank",
+    response_model=MatchingRankResult,
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider output was invalid"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def matching_rank(
+    request: MatchingRankInput,
+    _authenticated: None = Depends(require_internal_auth),
+) -> MatchingRankResult:
+    """Reorder a shortlist the backend already computed, and explain each match.
+
+    The agent never discovers candidates and never scores them: it returns a
+    permutation of what it was given plus one sentence each. Anything else is
+    rejected here and again by the backend, which falls back to its own
+    deterministic order rather than showing a contributor nothing (DEC-010).
+    """
+    return await analyze_matching_rank(request)
