@@ -1,9 +1,11 @@
 """Deterministic evidence context for the Profiling LLM (Phase 29).
 
-The Agent's Context Store (Phase 27) collects the tool outputs of one
-request, and the graph summary layer (Phase 28) keeps large Graphify
-outputs as-is while additionally storing a compact deterministic
-summary. This module is the boundary between the two responsibilities:
+The Agent's Context Store collects the tool outputs of one request,
+keeps each repository's evidence separate, and stores each Graphify
+output exactly as returned by the MCP — the actual graph payload
+(``nodes``, ``edges``, and any Graphify metadata) is never replaced by
+an aggregate metric-only summary. This module is the boundary between
+the two responsibilities:
 
 * the Agent/Context Store collects evidence — nothing here retrieves,
   requests, or invents tool outputs,
@@ -11,26 +13,39 @@ summary. This module is the boundary between the two responsibilities:
   which outputs to retrieve or whether a graph is large.
 
 The Profiling LLM receives exactly ONE explicit, deterministic evidence
-package built from the stored context. Only evidence relevant to the
-analysis mode is collected:
+package built from the stored context. The package carries the request
+context and the evidence SEPARATED PER REPOSITORY, so analyzing
+multiple repositories never collapses to the last one:
 
-* CONTRIBUTOR: ``request``, ``technologies``, ``static_analysis``,
-  ``full_graph`` (or ``full_graph_summary``), ``contributor_graph`` (or
-  ``contributor_graph_summary``) — the contributor graph is the
-  contributor-scoped evidence and the full graph is the
-  repository-wide evidence,
-* PROJECT: ``request``, ``technologies``, ``static_analysis``,
-  ``full_graph`` (or ``full_graph_summary``) — contributor evidence
-  never appears.
+    {
+      "analysis_mode": "...",
+      "request": "...",
+      "repositories": [
+        {
+          "repository": "<owner/name>",
+          "technologies": "...",
+          "static_analysis": "...",
+          "full_graph": "...",
+          "contributor_graph": "..."      // CONTRIBUTOR mode only
+        },
+        ...
+      ]
+    }
 
-Graph representation rule (per graph, fully deterministic):
+Only evidence relevant to the analysis mode is collected:
 
-* when a summary is stored, the summary is the representation,
-* otherwise the full graph is the representation.
+* CONTRIBUTOR: each repository contributes ``technologies``,
+  ``static_analysis``, ``full_graph`` and ``contributor_graph`` — the
+  contributor graph is the contributor-scoped evidence and the full
+  graph is the repository-wide evidence,
+* PROJECT: each repository contributes ``technologies``,
+  ``static_analysis`` and ``full_graph`` — contributor evidence never
+  appears.
 
-The package never contains both representations of the same graph, and
-the original full graph always remains stored in the Context Store
-under its own key — this module never writes to the store.
+Graph representation rule (per graph, fully deterministic): each graph
+is represented by its actual stored Graphify payload — the full graph
+or the selected contributor subgraph exactly as returned by the MCP.
+No summary representation exists, and nothing here writes to the store.
 
 The analysis-mode rule is the existing Phase 25/26 rule: CONTRIBUTOR
 when the request carries a GitHub login, PROJECT otherwise.
@@ -44,9 +59,7 @@ from typing import Any
 from sharek_agents.agents.skill_profiling.contract_schemas import SkillProfileInput
 from sharek_agents.agents.skill_profiling_agent.context_store import (
     CONTEXT_CONTRIBUTOR_GRAPH,
-    CONTEXT_CONTRIBUTOR_GRAPH_SUMMARY,
     CONTEXT_FULL_GRAPH,
-    CONTEXT_FULL_GRAPH_SUMMARY,
     CONTEXT_REQUEST,
     CONTEXT_STATIC_ANALYSIS,
     CONTEXT_TECHNOLOGIES,
@@ -56,27 +69,19 @@ from sharek_agents.agents.skill_profiling_agent.context_store import (
 ANALYSIS_MODE_CONTRIBUTOR = "CONTRIBUTOR"
 ANALYSIS_MODE_PROJECT = "PROJECT"
 
-# Package keys by mode. The graph package keys keep the graph names
-# (``full_graph`` / ``contributor_graph``); their VALUES follow the
-# representation rule below.
-_CONTRIBUTOR_PACKAGE_KEYS = (
-    CONTEXT_REQUEST,
+# Per-repository package keys by mode. The same keys are also used for
+# the orchestration observation.
+_CONTRIBUTOR_REPOSITORY_KEYS = (
     CONTEXT_TECHNOLOGIES,
     CONTEXT_STATIC_ANALYSIS,
     CONTEXT_FULL_GRAPH,
     CONTEXT_CONTRIBUTOR_GRAPH,
 )
-_PROJECT_PACKAGE_KEYS = (
-    CONTEXT_REQUEST,
+_PROJECT_REPOSITORY_KEYS = (
     CONTEXT_TECHNOLOGIES,
     CONTEXT_STATIC_ANALYSIS,
     CONTEXT_FULL_GRAPH,
 )
-
-_GRAPH_SUMMARY_KEY = {
-    CONTEXT_FULL_GRAPH: CONTEXT_FULL_GRAPH_SUMMARY,
-    CONTEXT_CONTRIBUTOR_GRAPH: CONTEXT_CONTRIBUTOR_GRAPH_SUMMARY,
-}
 
 
 def analysis_mode_for_request(request: SkillProfileInput) -> str:
@@ -92,30 +97,13 @@ def analysis_mode_for_request(request: SkillProfileInput) -> str:
 
 
 def evidence_keys_for_mode(analysis_mode: str) -> tuple[str, ...]:
-    """Package keys relevant to an analysis mode.
+    """Package keys relevant to an analysis mode, per repository.
 
     CONTRIBUTOR includes the contributor graph; PROJECT never does.
     """
     if analysis_mode == ANALYSIS_MODE_CONTRIBUTOR:
-        return _CONTRIBUTOR_PACKAGE_KEYS
-    return _PROJECT_PACKAGE_KEYS
-
-
-def _select_representation(
-    context: ContextStore,
-    graph_key: str,
-    summary_key: str,
-) -> str | None:
-    """Determine the Profiling LLM representation of one stored graph.
-
-    The summary is used when it exists; otherwise the full graph is
-    used. Both are never returned, and the stored full graph is never
-    modified.
-    """
-    summary = context.get(summary_key)
-    if summary is not None:
-        return summary
-    return context.get(graph_key)
+        return _CONTRIBUTOR_REPOSITORY_KEYS
+    return _PROJECT_REPOSITORY_KEYS
 
 
 def build_evidence_context(
@@ -124,19 +112,31 @@ def build_evidence_context(
 ) -> dict[str, Any]:
     """Build the explicit, deterministic evidence package for the Profiling LLM.
 
-    The package always carries ``analysis_mode`` and only the evidence
-    actually stored for that mode. Each graph is represented by its
-    summary when one exists, otherwise by the full graph — never both.
+    The package always carries ``analysis_mode`` and, when stored, the
+    request context plus the evidence SEPARATED PER REPOSITORY: every
+    analyzed repository keeps its own ``technologies``,
+    ``static_analysis`` and graphs, so one repository's evidence never
+    overwrites another's. Each graph is represented by its actual
+    stored Graphify payload — the graph is never replaced by a
+    metric-only summary, and no summary representation exists.
     """
     package: dict[str, Any] = {"analysis_mode": analysis_mode}
-    for key in evidence_keys_for_mode(analysis_mode):
-        summary_key = _GRAPH_SUMMARY_KEY.get(key)
-        if summary_key is not None:
-            value = _select_representation(context, key, summary_key)
-        else:
-            value = context.get(key)
-        if value is not None:
-            package[key] = value
+
+    request = context.request_context()
+    if request is not None:
+        package[CONTEXT_REQUEST] = request
+
+    repositories: list[dict[str, Any]] = []
+    for repository, values in context.repositories().items():
+        entry: dict[str, Any] = {"repository": repository}
+        for key in evidence_keys_for_mode(analysis_mode):
+            value = values.get(key)
+            if value is not None:
+                entry[key] = value
+        repositories.append(entry)
+    if repositories:
+        package["repositories"] = repositories
+
     return package
 
 

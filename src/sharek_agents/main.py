@@ -1,15 +1,6 @@
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
 
-from sharek_agents.agents.skill_profiling.contract_schemas import (
-    SkillProfileInput,
-    SkillProfileResult,
-)
-from sharek_agents.agents.skill_profiling.contract_service import (
-    SkillProfileProviderError,
-    SkillProfileProviderTimeout,
-    generate_skill_profile,
-)
 from sharek_agents.agents.advisory_fit.endpoint import (
     analyze_advisory_fit,
 )
@@ -24,11 +15,32 @@ from sharek_agents.agents.document_understanding.schemas import (
     DocumentUnderstandingInput,
     DocumentUnderstandingResult,
 )
+from sharek_agents.agents.skill_profiling.contract_schemas import (
+    SkillProfileInput,
+    SkillProfileResult,
+)
+from sharek_agents.agents.skill_profiling.contract_service import (
+    SkillProfileProviderError,
+    SkillProfileProviderTimeout,
+    generate_skill_profile,
+)
 from sharek_agents.agents.skill_profiling.router import profile_repos
 from sharek_agents.agents.skill_profiling.schemas import AgentResponse
+from sharek_agents.agents.skill_profiling_agent.endpoint import (
+    generate_skill_profile_agent_endpoint,
+)
+from sharek_agents.agents.skill_profiling_agent.schemas import (
+    SkillProfileAgentResponse,
+)
+from sharek_agents.agents.semantic_matching.endpoint import (
+    match_projects as semantic_matching_match,
+)
+from sharek_agents.agents.semantic_matching.schemas import (
+    SemanticMatchRequest,
+    SemanticMatchResponse,
+)
 from sharek_agents.common.logging import get_logger
 from sharek_agents.security import require_service_token
-
 
 logger = get_logger(__name__)
 
@@ -72,6 +84,21 @@ async def generate_skill_profile_endpoint(body: SkillProfileInput):
 
 
 @app.post(
+    "/skill-profiles/agent/generate",
+    response_model=SkillProfileAgentResponse,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Skill Profiling Agent returned an invalid response"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Skill Profiling Agent timed out"},
+    },
+)
+async def generate_skill_profile_agent_endpoint_route(body: SkillProfileInput):
+    return await generate_skill_profile_agent_endpoint(body)
+
+
+@app.post(
     "/document-understanding/analyze",
     response_model=DocumentUnderstandingResult,
     dependencies=[Depends(require_service_token)],
@@ -99,6 +126,22 @@ async def document_understanding_endpoint(body: DocumentUnderstandingInput):
 )
 async def advisory_fit_endpoint(body: AdvisoryFitInput):
     return await analyze_advisory_fit(body)
+
+
+@app.post(
+    "/semantic-matching/match",
+    response_model=SemanticMatchResponse,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        404: {"description": "Requested Contributor does not exist"},
+        501: {"description": "Project -> Contributors direction is not implemented"},
+        502: {"description": "Matching index, source data, or indexing failure"},
+        503: {"description": "Service authentication or matching storage is not configured"},
+    },
+)
+async def semantic_matching_match_endpoint(body: SemanticMatchRequest):
+    return await semantic_matching_match(body)
 
 
 @app.get("/health")

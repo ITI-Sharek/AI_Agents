@@ -28,21 +28,19 @@ chain-of-thought.
 Phase 27: the run also owns one request-scoped in-memory ``ContextStore``.
 Every successful tool result is stored automatically at the tool-result
 boundary (tool call → tool result → Context Store → observation to the
-LLM), keyed deterministically by context type (``request``,
-``technologies``, ``static_analysis``, ``full_graph``,
-``contributor_graph``). The LLM never decides what is stored, and the
-store is created fresh per run — it is never global or shared between
-requests.
+LLM), keyed deterministically: the request context under ``request``
+and every repository-scoped output (``technologies``,
+``static_analysis``, ``full_graph``, ``contributor_graph``) under its
+repository identity, so analyzing one repository never overwrites
+another repository's evidence. The LLM never decides what is stored,
+and the store is created fresh per run — it is never global or shared
+between requests.
 
-Phase 28: the ``ContextStore`` prevents large Graphify outputs from
-unboundedly filling the LLM context window. The original ``full_graph``
-and ``contributor_graph`` outputs are always kept as-is; when one
-exceeds the configurable ``graph_summary_threshold_chars``
-(``AgentConfig``, safe default 4000 characters), a compact deterministic
-summary (metrics and relation counts already present in the output — no
-LLM involved) is stored additionally under ``full_graph_summary`` /
-``contributor_graph_summary``. The original graph is never overwritten
-or deleted.
+Phase 28: the ``ContextStore`` stores the Graphify outputs exactly as
+returned by the MCP — the actual graph payload (``nodes``, ``edges``,
+and any Graphify metadata) is preserved for ``full_graph`` and
+``contributor_graph``. No aggregate metric-only summary representation
+is generated anymore.
 
 Phase 29: the Profiling LLM (the existing, single LLM of the ReAct
 loop) receives ONE explicit, deterministic evidence package built by
@@ -50,19 +48,20 @@ loop) receives ONE explicit, deterministic evidence package built by
 every LLM invocation the package is rebuilt from the currently stored
 evidence (one package at a time, the previous package message
 replaced), so whichever invocation produces the final profile sees the
-current stored evidence. CONTRIBUTOR mode collects ``request``,
-``technologies``, ``static_analysis``, and both graphs; PROJECT mode
-collects the same minus the contributor graph. Each graph is sent as
-its summary when a summary exists, otherwise as the full graph — never
-both — while the original graph stays stored.
+current stored evidence. The package carries the request context and
+the evidence SEPARATED PER REPOSITORY: every analyzed repository keeps
+its own ``technologies``, ``static_analysis``, ``full_graph`` and —
+in CONTRIBUTOR mode — ``contributor_graph``; PROJECT mode never sends
+a contributor graph. Each graph is sent as its actual stored Graphify
+payload.
 
 Phase 30: the orchestration tool observation follows the same rule.
 The raw ``analyze_contributor_repository`` envelope is never dumped
 into the LLM input; the observation is rebuilt by reading the already
-stored Context Store representations (``static_analysis`` + each graph
-as summary-or-full, CONTRIBUTOR mode adds the contributor graph, and
-PROJECT mode never does). The original envelope and full graphs remain
-stored unchanged.
+stored Context Store representations of the envelope's repository
+(``static_analysis`` + each stored graph, CONTRIBUTOR mode adds the
+contributor graph, and PROJECT mode never does). The original envelope
+and graphs remain stored unchanged.
 """
 
 from __future__ import annotations
@@ -85,9 +84,7 @@ from sharek_agents.agents.skill_profiling.contract_schemas import SkillProfileIn
 from sharek_agents.agents.skill_profiling_agent.context_store import (
     _ORCHESTRATION_TOOL,
     CONTEXT_CONTRIBUTOR_GRAPH,
-    CONTEXT_CONTRIBUTOR_GRAPH_SUMMARY,
     CONTEXT_FULL_GRAPH,
-    CONTEXT_FULL_GRAPH_SUMMARY,
     CONTEXT_STATIC_ANALYSIS,
     ContextStore,
 )
@@ -99,9 +96,6 @@ from sharek_agents.agents.skill_profiling_agent.evidence_context import (
     ANALYSIS_MODE_CONTRIBUTOR,
     analysis_mode_for_request,
     evidence_context_message,
-)
-from sharek_agents.agents.skill_profiling_agent.graph_summary import (
-    DEFAULT_GRAPH_SUMMARY_THRESHOLD_CHARS,
 )
 from sharek_agents.agents.skill_profiling_agent.llm import get_skill_profiling_llm
 from sharek_agents.agents.skill_profiling_agent.mcp_client import (
@@ -148,7 +142,6 @@ class AgentConfig:
     timeout_seconds: float | None = AGENT_TIMEOUT_SECONDS
     llm: BaseChatModel | None = None
     tools: list[Tool] = field(default_factory=list)
-    graph_summary_threshold_chars: int = DEFAULT_GRAPH_SUMMARY_THRESHOLD_CHARS
 
 
 class SkillProfilingAgent:
@@ -207,9 +200,7 @@ class SkillProfilingAgent:
         repeated_call_history: dict[str, int] = {}
         activities: list[ToolActivity] = []
         evidence = EvidenceBundle(request)
-        context = ContextStore(
-            graph_summary_threshold_chars=config.graph_summary_threshold_chars
-        )
+        context = ContextStore()
         analysis_mode = analysis_mode_for_request(request)
         evidence_context_index: int | None = None
 
@@ -273,7 +264,9 @@ class SkillProfilingAgent:
                 activities.append(_to_activity(result))
                 record = evidence.record(result, call.arguments)
                 if result.status == "success":
-                    context.record_tool_result(result.name, result.output)
+                    context.record_tool_result(
+                        result.name, result.output, call.arguments
+                    )
                 messages.append(
                     ToolMessage(
                         content=_format_observation(
@@ -509,10 +502,10 @@ def _format_observation(
 
     The orchestration result is never exposed as its raw envelope: the
     observation is rebuilt from the already stored Context Store
-    representations (``static_analysis`` plus each graph as its summary
-    when one exists, otherwise as the full graph — CONTRIBUTOR mode
-    adds ``contributor_graph``, PROJECT mode never does), so the LLM
-    receives only one representation of each graph.
+    representations (``static_analysis`` plus each graph as its actual
+    stored Graphify payload — CONTRIBUTOR mode adds
+    ``contributor_graph``, PROJECT mode never does), so the LLM
+    receives one representation of each graph.
     """
     body: str
     if result.status == "success" and result.name == _ORCHESTRATION_TOOL:
@@ -532,49 +525,36 @@ def _build_orchestration_observation(
     """Rebuild the orchestration observation from the stored representations.
 
     Reads only the entries the Context Store already holds for the
-    orchestration result — the same values the Phase-29 evidence
-    package uses — so no second graph-size or summary rule exists. The
-    original envelope and full graphs stay stored untouched. When the
-    output could not be stored (not a parseable envelope), the raw
-    output is returned as the fallback.
+    repository of this orchestration result — the same values the
+    evidence package uses — each graph is represented by its actual
+    stored Graphify payload. The original envelope and graphs stay
+    stored untouched. When the output's repository could not be
+    resolved or nothing was stored, the raw output is returned as the
+    fallback.
     """
+    repository = context.orchestration_repository(result.output)
+    values = (
+        context.repository_values(repository)
+        if repository is not None
+        else None
+    )
+    if values is None:
+        return _format_tool_result(result)
+
     observation: dict[str, Any] = {}
-    static_analysis = context.get(CONTEXT_STATIC_ANALYSIS)
+    static_analysis = values.get(CONTEXT_STATIC_ANALYSIS)
     if static_analysis is not None:
         observation["static_analysis"] = static_analysis
-    full_graph = _graph_representation(
-        context, CONTEXT_FULL_GRAPH, CONTEXT_FULL_GRAPH_SUMMARY
-    )
+    full_graph = values.get(CONTEXT_FULL_GRAPH)
     if full_graph is not None:
         observation["full_graph"] = full_graph
     if analysis_mode == ANALYSIS_MODE_CONTRIBUTOR:
-        contributor_graph = _graph_representation(
-            context,
-            CONTEXT_CONTRIBUTOR_GRAPH,
-            CONTEXT_CONTRIBUTOR_GRAPH_SUMMARY,
-        )
+        contributor_graph = values.get(CONTEXT_CONTRIBUTOR_GRAPH)
         if contributor_graph is not None:
             observation["contributor_graph"] = contributor_graph
     if not observation:
         return _format_tool_result(result)
     return json.dumps(observation, ensure_ascii=False)
-
-
-def _graph_representation(
-    context: ContextStore,
-    graph_key: str,
-    summary_key: str,
-) -> str | None:
-    """The stored summary when it exists, otherwise the stored full graph.
-
-    Reads the existing Context Store entries; returns one
-    representation only, never both. Mirrors the evidence-context
-    representation rule without re-deriving graph size or summaries.
-    """
-    summary = context.get(summary_key)
-    if summary is not None:
-        return summary
-    return context.get(graph_key)
 
 
 def _to_activity(result: ToolResult) -> ToolActivity:

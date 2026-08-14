@@ -13,10 +13,13 @@ project's existing static-analysis tools (radon, pylint, eslint,
 checkstyle, gocyclo, golangci-lint, clippy-driver, rubocop, cppcheck,
 clang-tidy, phpcs, detekt, swiftlint, dart, sqlfluff, dotnet)
 plus the LOCAL offline Semgrep analyzer (python/javascript/typescript
-only) and the external ``graphify`` binary, then emits ONE bounded,
+only) and the external ``graphify`` binary, then emits ONE
 deterministic JSON evidence object on stdout, preceded by the
-``EVIDENCE_OK`` marker. A tool missing from the image is reported as
-deterministic ``tool_unavailable`` — never a host fallback.
+``EVIDENCE_OK`` marker. The Graphify evidence carries the full graph
+payload (``nodes``, ``edges``, and any other fields Graphify produced)
+— it is never reduced to aggregate metrics. A tool missing from the
+image is reported as deterministic ``tool_unavailable`` — never a host
+fallback.
 
 Semgrep runs exclusively inside the image against files already present
 in the workspace, with a ruleset bundled into the image and the
@@ -2077,6 +2080,8 @@ def _graph_success(
     inheritance_depth: int | None,
     coupling: float | None,
     circular_import_count: int,
+    nodes: list[dict],
+    edges: list[dict],
 ) -> dict[str, object]:
     return {
         "status": "success",
@@ -2090,6 +2095,8 @@ def _graph_success(
         "inheritance_depth": inheritance_depth,
         "coupling": coupling,
         "circular_import_count": circular_import_count,
+        "nodes": nodes,
+        "edges": edges,
         "error_message": None,
     }
 
@@ -2165,7 +2172,10 @@ def run_graph_extract(repo_path: str, timeout: int) -> dict[str, object]:
     ``filter_contributor_code``. Splitting extraction from selection
     lets the MCP orchestration run Graphify on the full repository
     concurrently with the contributor filter while guaranteeing that
-    graph filtering always follows Graphify.
+    graph filtering always follows Graphify. The complete graph payload
+    from ``graph.json`` (``nodes``, ``edges``, and any other fields
+    Graphify produced) is preserved in the returned evidence under
+    ``graph`` — the graph structure is never reduced to counts.
     """
     graphify_bin = shutil.which("graphify")
     if graphify_bin is None:
@@ -2206,6 +2216,7 @@ def run_graph_extract(repo_path: str, timeout: int) -> dict[str, object]:
         "graph_available": True,
         "node_count": node_count,
         "error_message": None,
+        "graph": data if isinstance(data, dict) else {},
     }
 
 
@@ -2219,9 +2230,9 @@ def run_graph_select(repo_path: str, timeout: int) -> dict[str, object]:
     contributor-related nodes and relations from the full graph: nodes
     whose ``source_file`` is in the scope manifest plus the relations
     touching those nodes — so the contributor's architectural
-    relationships with the rest of the repository are preserved. All
-    returned values are bounded counts and relation summaries derived
-    from the selected subgraph.
+    relationships with the rest of the repository are preserved. The
+    selected subgraph (its nodes and edges) is preserved in the returned
+    evidence alongside the derived counts and relation summaries.
     """
     graph_file = Path(repo_path) / "graphify-out" / "graph.json"
     if not graph_file.is_file():
@@ -2259,6 +2270,8 @@ def run_graph_select(repo_path: str, timeout: int) -> dict[str, object]:
         inheritance_depth=_inheritance_depth(edges),
         coupling=coupling,
         circular_import_count=_circular_import_count(edges),
+        nodes=nodes,
+        edges=edges,
     )
 
 

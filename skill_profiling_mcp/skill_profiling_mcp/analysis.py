@@ -421,9 +421,10 @@ class GraphAnalyzer(ContributorScopeAnalyzer):
     Graphify analyzes the FULL repository (``/workspace/repo``) in the
     sandbox; the in-container runner then selects the
     contributor-related nodes and relations (from the registered scope
-    manifest at ``/workspace/scope.manifest``) for the bounded graph
-    evidence. Architectural relationships with the rest of the
-    repository are preserved in the selected relations.
+    manifest at ``/workspace/scope.manifest``) for the graph evidence.
+    Architectural relationships with the rest of the repository are
+    preserved in the selected relations, and the selected nodes and
+    edges themselves are returned.
     """
 
     def analyze_graph(
@@ -431,8 +432,8 @@ class GraphAnalyzer(ContributorScopeAnalyzer):
     ) -> dict[str, object]:
         """Run Graphify against the full repository, scoped for evidence.
 
-        Returns bounded structured graph evidence — counts and relation
-        summaries, never the source tree or raw graph data.
+        Returns the graph evidence — the selected nodes and edges
+        together with their counts and relation summaries.
         """
         self._lease_for(sandbox_identifier, workspace_path)
         self._ensure_sandbox(sandbox_identifier)
@@ -476,6 +477,8 @@ class GraphAnalyzer(ContributorScopeAnalyzer):
             "inheritance_depth": evidence.get("inheritance_depth"),
             "coupling": evidence.get("coupling"),
             "circular_import_count": int(evidence.get("circular_import_count", 0)),
+            "nodes": list(evidence.get("nodes", [])),
+            "edges": list(evidence.get("edges", [])),
             "error_message": evidence.get("error_message"),
             "message": f"graph analysis completed: {status}",
         }
@@ -486,7 +489,7 @@ class GraphAnalyzer(ContributorScopeAnalyzer):
         evidence: dict[str, object],
     ) -> dict[str, object]:
         status = evidence.get("status", "error")
-        return {
+        report = {
             "success": _analyzer_succeeded(status),
             "sandbox_identifier": sandbox_identifier,
             "workspace_path": REPO_WORKSPACE_PATH,
@@ -497,6 +500,11 @@ class GraphAnalyzer(ContributorScopeAnalyzer):
             "error_message": evidence.get("error_message"),
             "message": f"graph extraction completed: {status}",
         }
+        graph = evidence.get("graph")
+        if isinstance(graph, dict):
+            for key, value in graph.items():
+                report.setdefault(key, value)
+        return report
 
     def analyze_graph_extract(
         self, sandbox_identifier: str
@@ -505,7 +513,8 @@ class GraphAnalyzer(ContributorScopeAnalyzer):
 
         No contributor filtering is applied in this step: Graphify
         analyzes the complete repository workspace inside the sandbox
-        and the full graph artifact is produced. The contributor graph
+        and the full graph artifact is produced; the full graph payload
+        is preserved in the returned evidence. The contributor graph
         filtering is applied afterwards via ``analyze_graph_select`` —
         the MCP orchestration owns that sequencing, so Graphify always
         runs on the full repository BEFORE graph filtering.
@@ -538,8 +547,8 @@ class GraphAnalyzer(ContributorScopeAnalyzer):
         Requires the registered contributor scope (its manifest is
         written by ``filter_contributor_code`` inside the sandbox) and
         the full graph artifact produced by ``analyze_graph_extract``.
-        Returns bounded contributor graph evidence — counts and relation
-        summaries, never the source tree or raw graph data.
+        Returns the contributor graph evidence — the selected nodes and
+        edges together with their counts and relation summaries.
         """
         self._lease_for(sandbox_identifier, SCOPE_WORKSPACE_PATH)
         self._ensure_sandbox(sandbox_identifier)

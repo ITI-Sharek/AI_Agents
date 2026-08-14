@@ -101,6 +101,24 @@ class Settings:
             os.environ.get("DOC_UNDERSTANDING_TIMEOUT_SECONDS", "120")
         )
     )
+
+    # Skill Profiling Agent LLM (dedicated TokenRouter configuration).
+    # Independent from the shared common LLM: the Skill Profiling Agent
+    # resolves its provider, base URL, model, and API key only from these
+    # settings (see ``skill_profiling_agent/llm.py``).
+    skill_profiling_llm_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "SKILL_PROFILING_LLM_MODEL", "moonshotai/kimi-k3-free"
+        )
+    )
+    skill_profiling_llm_base_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "SKILL_PROFILING_LLM_BASE_URL", "https://api.tokenrouter.com/v1"
+        )
+    )
+    skill_profiling_llm_api_key: str = field(
+        default_factory=lambda: os.environ.get("SKILL_PROFILING_LLM_API_KEY", "")
+    )
     cloudinary_cloud_name: str = field(
         default_factory=lambda: os.environ.get("CLOUDINARY_CLOUD_NAME", "")
     )
@@ -148,6 +166,11 @@ class Settings:
     )
     doc_understanding_embedding_base_url: str = field(
         default_factory=lambda: os.environ.get("DOC_UNDERSTANDING_EMBEDDING_BASE_URL", "")
+    )
+
+    # Semantic Matching - independent matching index (PostgreSQL + pgvector)
+    semantic_matching_database_url: str = field(
+        default_factory=lambda: os.environ.get("SEMANTIC_MATCHING_DATABASE_URL", "")
     )
 
     # Chunking
