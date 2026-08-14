@@ -20,6 +20,13 @@ from sharek_agents.agents.skill_profiling.schemas import (
 )
 from sharek_agents.agents.advisory_fit.endpoint import analyze_advisory_fit
 from sharek_agents.agents.advisory_fit.schemas import AdvisoryFitInput, AdvisoryFitResult
+from sharek_agents.agents.requirement_inference.endpoint import (
+    analyze_requirement_inference,
+)
+from sharek_agents.agents.requirement_inference.schemas import (
+    RequirementInferenceInput,
+    RequirementInferenceResult,
+)
 
 app = FastAPI(title="Share-k AI Agents", version="0.1.0")
 internal_auth = HTTPBearer(auto_error=False)
@@ -92,3 +99,27 @@ async def advisory_fit_assessment(
     _authenticated: None = Depends(require_internal_auth),
 ) -> AdvisoryFitResult:
     return await analyze_advisory_fit(request)
+
+
+@app.post(
+    "/requirements/infer",
+    response_model=RequirementInferenceResult,
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider output was invalid"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def requirement_inference(
+    request: RequirementInferenceInput,
+    _authenticated: None = Depends(require_internal_auth),
+) -> RequirementInferenceResult:
+    """Name the skills and levels a Contribution Request demands.
+
+    Findings about the work, never a verdict about a person: NestJS derives the
+    eligibility decision from these rows (DEC-078, ADR 0015). The input schema
+    has no contributor field and forbids extras, so this endpoint cannot be
+    handed contributor data even by mistake.
+    """
+    return await analyze_requirement_inference(request)
