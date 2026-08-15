@@ -28,6 +28,7 @@ from sharek_agents.main import app
 #: the backend client must be changed first, in the other repository.
 BACKEND_CALLED_ROUTES = {
     "/advisory-fit/assess",
+    "/contributor-matching/generate",
     "/matching/rank",
     "/material-analysis/analyze",
     "/requirements/infer",
@@ -77,11 +78,8 @@ def test_the_advisory_fit_path_is_not_renamed() -> None:
     assert "/advisory-fit/analyze" not in served_paths()
 
 
-def test_the_removed_owner_side_matching_route_is_gone() -> None:
-    # Request -> ranked contributors was removed from the product on
-    # 2026-08-14. Matching is pull-only; reintroducing this would resurrect a
-    # surface the backend deleted.
-    assert "/contributor-matching/generate" not in served_paths()
+def test_owner_contributor_matching_route_is_served() -> None:
+    assert "/contributor-matching/generate" in served_paths()
 
 
 @pytest.mark.parametrize("path", GUARDED_POST_ROUTES)

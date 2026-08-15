@@ -32,6 +32,13 @@ from sharek_agents.agents.matching_rank.schemas import (
     MatchingRankInput,
     MatchingRankResult,
 )
+from sharek_agents.agents.contributor_matching.endpoint import (
+    analyze_contributor_matching,
+)
+from sharek_agents.agents.contributor_matching.schemas import (
+    ContributorMatchingInput,
+    ContributorMatchingResult,
+)
 from sharek_agents.agents.material_analysis.endpoint import analyze_materials
 from sharek_agents.agents.material_analysis.schemas import (
     MaterialAnalysisInput,
@@ -224,3 +231,26 @@ async def matching_rank(
     deterministic order rather than showing a contributor nothing (DEC-010).
     """
     return await analyze_matching_rank(request)
+
+
+@app.post(
+    "/contributor-matching/generate",
+    response_model=ContributorMatchingResult,
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Provider output was invalid"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Provider timed out"},
+    },
+)
+async def contributor_matching(
+    request: ContributorMatchingInput,
+    _authenticated: None = Depends(require_internal_auth),
+) -> ContributorMatchingResult:
+    """Rank supplied contributors for one owner-authorized Request.
+
+    Candidate discovery, subscription enforcement, ownership, and the final
+    selection remain in NestJS. This route returns evidence-scoped advisory
+    analysis only and cannot invite, assign, or mutate platform state.
+    """
+    return await analyze_contributor_matching(request)

@@ -134,6 +134,14 @@ It cannot discover candidates, change the visible set, identify the
 contributor, return a score or percentage, or make an eligibility decision.
 Provider failures leave the deterministic backend order authoritative.
 
+## Owner Contributor Matching Contract
+
+`POST /contributor-matching/generate` ranks only the contributor candidates
+supplied by the NestJS backend for one owner-authorized published Contribution
+Request. NestJS owns candidate discovery, Gold entitlement enforcement, and
+all product mutations. The AI response is evidence-scoped advisory analysis;
+it cannot invite, assign, notify, or make an eligibility decision.
+
 ## Tests
 
 ```bash
