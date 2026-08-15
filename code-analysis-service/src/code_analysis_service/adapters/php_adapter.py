@@ -42,23 +42,59 @@ def analyze_php(
         )
 
     issues = []
-    try:
-        if result.stdout.strip():
-            data = json.loads(result.stdout)
-            for fp, file_data in data.get("files", {}).items():
-                for msg in file_data.get("messages", []):
-                    issues.append(AnalysisIssue(
-                        line=msg.get("line", 0),
-                        column=msg.get("column", 0),
-                        severity=msg.get("type", "error").lower(),
-                        message=msg.get("message", ""),
-                        rule_id=msg.get("source", ""),
-                        file_path=fp,
-                        node_type=None,
-                        heuristic_label=False,
-                    ))
-    except (json.JSONDecodeError, KeyError):
-        pass
+
+    # PHP_CodeSniffer 3.x exit codes: 0 = clean, 1 = errors found,
+    # 2 = fixable issues found (with no errors), 3 = internal error during
+    # processing or report generation. Exit 3 must never be interpreted as
+    # a successful analysis, even when a partial JSON report was printed.
+    if result.returncode == 3:
+        detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+        return StaticAnalysisEvidence(
+            status="error",
+            language="php",
+            error_message=(
+                f"phpcs internal error (exit 3): {detail[:500] or 'no output'}"
+            ),
+        )
+
+    report = None
+    if result.stdout.strip():
+        try:
+            report = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            report = None
+        if not isinstance(report, dict):
+            report = None
+    if report is not None:
+        for fp, file_data in report.get("files", {}).items():
+            for msg in file_data.get("messages", []):
+                issues.append(AnalysisIssue(
+                    line=msg.get("line", 0),
+                    column=msg.get("column", 0),
+                    severity=msg.get("type", "error").lower(),
+                    message=msg.get("message", ""),
+                    rule_id=msg.get("source", ""),
+                    file_path=fp,
+                    node_type=None,
+                    heuristic_label=False,
+                ))
+        return StaticAnalysisEvidence(
+            status="success",
+            language="php",
+            files_analyzed=len(file_paths),
+            issues=issues,
+        )
+
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+        return StaticAnalysisEvidence(
+            status="error",
+            language="php",
+            error_message=(
+                f"phpcs exited with {result.returncode} and produced no JSON "
+                f"report: {detail[:500] or 'no output'}"
+            ),
+        )
 
     return StaticAnalysisEvidence(
         status="success",

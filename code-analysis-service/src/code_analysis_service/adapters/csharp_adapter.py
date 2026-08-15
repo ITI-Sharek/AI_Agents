@@ -79,7 +79,7 @@ def analyze_csharp(
             [
                 "dotnet", "build", project_file,
                 "--no-restore",
-                "-warnaserror-",
+                "-p:TreatWarningsAsErrors=false",
             ],
             capture_output=True, text=True, timeout=timeout,
         )
@@ -93,6 +93,17 @@ def analyze_csharp(
         )
 
     issues = _parse_diagnostics(result.stderr + "\n" + result.stdout, abs_files)
+
+    if result.returncode != 0 and not issues:
+        detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+        return StaticAnalysisEvidence(
+            status="error",
+            language="csharp",
+            error_message=(
+                f"dotnet build exited with {result.returncode} and produced no "
+                f"diagnostics: {detail[:500] or 'no output'}"
+            ),
+        )
 
     return StaticAnalysisEvidence(
         status="success",

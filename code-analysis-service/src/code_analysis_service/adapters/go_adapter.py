@@ -23,7 +23,7 @@ def _run_gocyclo(files: list[str], timeout: int) -> Optional[float]:
     )
     if result.returncode != 0:
         return None
-    match = re.search(r"Avg:\s+([\d.]+)", result.stdout)
+    match = re.search(r"^Average:\s+([\d.]+)$", result.stdout, re.MULTILINE)
     if match:
         return float(match.group(1))
     return None

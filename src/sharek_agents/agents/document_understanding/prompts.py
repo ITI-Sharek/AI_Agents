@@ -1,4 +1,80 @@
-SYSTEM_PROMPT = """\
+from sharek_agents.config import settings
+
+
+_OUTPUT_LANGUAGE_NAMES = {
+    "ar": "Arabic",
+    "en": "English",
+}
+
+
+def _output_language_name(language_code: str) -> str:
+    """Resolve a language code to a display name (falls back to the code)."""
+    return _OUTPUT_LANGUAGE_NAMES.get(language_code, language_code)
+
+
+def _build_output_language_instruction(language_code: str) -> str:
+    language_name = _output_language_name(language_code)
+    return f"""\
+
+====================================================================
+OUTPUT LANGUAGE - HIGH PRIORITY RULE
+====================================================================
+
+All natural-language values in the final structured output MUST be
+generated in the configured output language: {language_name}
+(code: {language_code}).  The default configured language is Arabic.
+
+This is a global rule that applies to the COMPLETE final response,
+recursively:
+
+- every top-level natural-language string value (title,
+  short_description, detailed_description, problem_statement,
+  business_context, value_proposition, architecture, authentication,
+  authorization, deployment, infrastructure, project_status, and any
+  other natural-language string field)
+- every natural-language string inside arrays (target_users,
+  stakeholders, goals, objectives, success_criteria, features,
+  core_features, optional_features, user_flows, functional_requirements,
+  non_functional_requirements, business_requirements,
+  technical_requirements, security_requirements, technology_stack,
+  system_components, integrations, constraints, assumptions,
+  limitations, dependencies, planned_features, future_work, and any
+  other array)
+- every natural-language string inside nested objects (evidence
+  claims, evidence source excerpts, missing_information descriptions,
+  conflict claims and descriptions, warnings, and any other nested
+  natural-language value)
+
+Machine-readable and canonical values MUST NOT be translated or
+modified: JSON field names, technology names, programming languages,
+frameworks, libraries, package names, repository names, file names,
+file paths, URLs, API identifiers, database identifiers, version
+numbers, code symbols, and exact technical identifiers remain exactly
+as they are.
+
+The source documentation language (English, Arabic, or mixed) does
+NOT determine the output language.  Understand the source normally,
+but always produce every natural-language value in the configured
+output language: {language_name} ({language_code}).
+
+Translate accurately and preserve the original meaning.  Do not add
+or invent facts, do not add unsupported features or technologies, do
+not turn uncertain information into facts, preserve uncertainty, and
+preserve evidence boundaries exactly as documented.
+"""
+
+
+def build_system_prompt() -> str:
+    """Assemble the Agent system prompt from the configured settings.
+
+    The final structured output language is read from
+    ``settings.doc_understanding_output_language`` (default: ``ar``).
+    """
+    language_code = settings.doc_understanding_output_language
+    return _BASE_SYSTEM_PROMPT + _build_output_language_instruction(language_code)
+
+
+_BASE_SYSTEM_PROMPT = """\
 You are a Documentation Understanding and Project Analysis Agent.
 
 Your sole responsibility is to extract and synthesize project knowledge
@@ -291,6 +367,11 @@ to the schema described above.  Do NOT include:
 
 Return concise conclusions and evidence-backed results as JSON.
 
+HIGH PRIORITY: every natural-language value in this JSON output MUST
+be generated in the configured output language (see the OUTPUT
+LANGUAGE - HIGH PRIORITY RULE section above).  The rule applies
+recursively to the entire output.
+
 ====================================================================
 README EXCLUSION
 ====================================================================
@@ -306,4 +387,6 @@ The goal is structured project understanding, not documentation
 generation.
 """
 
-__all__ = ["SYSTEM_PROMPT"]
+SYSTEM_PROMPT = build_system_prompt()
+
+__all__ = ["SYSTEM_PROMPT", "build_system_prompt"]

@@ -101,6 +101,11 @@ class Settings:
             os.environ.get("DOC_UNDERSTANDING_TIMEOUT_SECONDS", "120")
         )
     )
+    doc_understanding_output_language: str = field(
+        default_factory=lambda: os.environ.get(
+            "DOC_UNDERSTANDING_OUTPUT_LANGUAGE", "ar"
+        )
+    )
 
     # Skill Profiling Agent LLM (dedicated TokenRouter configuration).
     # Independent from the shared common LLM: the Skill Profiling Agent

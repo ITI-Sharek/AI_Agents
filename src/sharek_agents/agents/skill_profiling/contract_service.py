@@ -221,6 +221,150 @@ def _build_evidence_bundle(request: SkillProfileInput) -> str:
     return json.dumps(bundle, indent=2)
 
 
+LEVEL_CONFIDENCE_GUIDELINES = """\
+LEVEL & CONFIDENCE GUIDELINES
+-----------------------------
+GENERAL RULES
+1. Detected technology proves only that the skill exists, never proficiency.
+2. Determine the level from the totality of available evidence, not a single indicator.
+3. Select a higher level only when the evidence clearly supports it.
+4. If evidence cannot distinguish between two levels, choose the lower supported level.
+5. Never assume experience that is not supported by evidence.
+6. Absence of evidence about one aspect does not necessarily mean the developer lacks that ability.
+7. Tool failure or unavailable analysis is not negative proficiency evidence.
+8. Evaluate actual skill usage, not merely dependency/configuration presence.
+9. When multiple repositories exist, consider the evidence collectively.
+10. Do not attribute work performed by other contributors to the contributor being evaluated.
+11. Level and confidence must be consistent with the cited evidence.
+
+PROFICIENCY LEVELS
+Beginner — evidence that the technology/skill is used, but usage is basic or limited:
+- Usage: direct/simple usage; heavy reliance on basic/default functionality; limited use of capabilities; no sufficient evidence of deeper usage.
+- Implementation: simple/direct implementations; solutions mainly for simple problems; limited error or edge-case handling; boilerplate/repeated patterns without deeper engineering decisions.
+- Architecture: unclear boundaries; multiple responsibilities in one module/component; relatively high coupling; poorly organized dependency relationships; simple or immature architecture.
+- Code quality: noticeable readability/maintainability problems; duplication or inconsistent patterns; some areas difficult to understand or modify.
+- Boundary: evidence proving only technology presence without meaningful depth of usage must not be raised above Beginner.
+
+Intermediate — practical and stable usage beyond basic usage:
+- Usage: repeated real usage; multiple important features/capabilities; ability to build real functionality; familiarity with common technology patterns.
+- Implementation: organized and understandable implementation; reasonable error and case handling; consistent implementation approaches; beyond-trivial solutions; some visible engineering decisions.
+- Architecture: reasonable separation of concerns; defined module/component responsibilities; existing boundaries even if imperfect; acceptable coupling; mostly logical dependencies; appropriate abstractions/patterns.
+- Code quality: generally maintainable; limited duplication; relatively consistent patterns; changes can be made without major reconstruction.
+- Boundary: real implementation alone is NOT enough for Advanced; Advanced requires additional evidence of usage depth and design quality.
+
+Advanced — strong evidence of understanding and ability to use the skill in organized, maintainable, and scalable solutions:
+- Usage: deep usage beyond basic APIs; multiple relevant capabilities/patterns; non-trivial cases; deliberate use of technology features; understanding of how different parts work together.
+- Implementation: organized and maintainable; good error and edge-case handling; supports change/extension; consistent engineering decisions; useful abstractions; no unjustified complexity.
+- Architecture — evaluate graph/architectural evidence as a structured picture:
+  1. Separation of Concerns: clear responsibilities; defined boundaries; logical distribution of functionality.
+  2. Dependency Direction: logical dependency flow; no unnecessary relationships; high-level logic does not unnecessarily depend on low-level details.
+  3. Coupling: relatively low coupling; changes do not unnecessarily propagate; relationships are understandable.
+  4. Cohesion: related functionality stays together; unrelated responsibilities are not grouped together.
+  5. Circular Dependencies: no impactful circular dependencies; limited circular dependencies must not be fundamental.
+  6. Abstraction & Reuse: useful abstractions; purposeful reuse; no obvious over-engineering.
+  7. Architectural Consistency: good design is repeated, not isolated.
+- Code quality: high readability/maintainability; consistent patterns; controlled duplication; controlled complexity; changes do not unnecessarily affect unrelated areas.
+- Boundary: Advanced requires multiple compatible pieces of evidence. Do NOT classify Advanced from only one good implementation, one advanced framework feature, one excellent module, one architecture pattern, or one Graph/Graphify metric.
+
+Expert — strong, REPEATED evidence of deep expertise in usage, design, and engineering decisions. "Good code" alone is not enough:
+- Usage: deep/advanced technology usage; multiple advanced capabilities where appropriate; complex cases; strong framework/library pattern knowledge; appropriate tool and abstraction selection.
+- Implementation: strong scalable implementations; good unexpected-case handling; repeated/systematic edge-case handling; controlled complexity as functionality grows; repeated engineering decisions demonstrating experience.
+- Architecture: clear cohesive boundaries with stable responsibility distribution; clear, consistent, deliberate dependency direction with no impactful circular dependencies; low coupling and high cohesion with independent modules collaborating through clear interfaces; appropriate abstractions (never for their own sake) that isolate implementation details and support change and extension; deliberate organized reuse with no major architectural duplication; good design repeated across the project or repositories.
+- Boundary: Expert requires repeated, multi-dimensional evidence. Do NOT select Expert from only one advanced framework feature, one architecture pattern, one excellent module, one excellent metric, or one complex implementation.
+- SCHEMA CONSTRAINT: the output schema supports only beginner | intermediate | advanced. Evidence meeting the Expert criteria must still be returned as advanced, with the Expert-level depth explained in the evidence summary and limitations. The Expert tier exists only as a decision boundary, never as an output value.
+
+GRAPHIFY / ARCHITECTURAL EVIDENCE
+- Graphify is NOT a direct proficiency score. Never use "Graph score = X → Advanced" or "Circular dependencies = 0 → Expert".
+- Interpret graph/architectural evidence as a structured picture, evaluated in this order:
+  1. Boundaries & Separation of Concerns
+  2. Dependency Direction
+  3. Coupling
+  4. Cohesion
+  5. Circular Dependencies
+  6. Abstraction & Reuse
+  7. Architectural Consistency
+- For each area ask: are responsibilities clearly separated? are boundaries logical? are dependencies directional and appropriate? is coupling excessive? is cohesion strong? are circular dependencies absent, limited, or widespread? are abstractions useful? is reuse purposeful? is good architecture repeated or isolated?
+- Core rule: NO single Graph/Graphify signal determines the proficiency level. Combine architectural evidence with implementation and technology-usage evidence.
+
+IMPLEMENTATION AS LEVEL EVIDENCE
+Evaluate engineering quality, not code size:
+- Complexity: is the problem trivial or meaningful? is complexity justified and controlled?
+- Error handling: are expected errors handled? is defensive handling appropriate? are important edge cases handled?
+- Maintainability: is the code understandable? can it be modified reasonably? do changes unnecessarily affect unrelated areas?
+- Consistency: are patterns consistent and organized?
+- Engineering decisions: are there deliberate decisions? is the chosen solution appropriate rather than merely functional?
+
+TESTING
+- Testing is NOT a general proficiency criterion for another skill. Excellent tests do NOT make another skill Expert or Advanced.
+- Testing is a primary level criterion only when the skill itself is testing-related (Testing, Test Automation, QA Engineering, Testing Frameworks); for those, evaluate test coverage, test design, fixtures, mocks, parametrization, organization, edge-case testing, and maintainability.
+- For other skills, testing may only support implementation-quality evidence and must NOT independently raise the level.
+
+FRAMEWORK / TECHNOLOGY DEPTH
+Dependency presence alone is insufficient. Evaluate:
+- Breadth: number of repositories using the technology; how much of the project depends on it; is usage isolated or broad?
+- Depth: basic vs advanced features; advanced features; custom configuration; framework-specific patterns; meaningful architectural integration.
+- Practical usage: actually used in implementation, or merely present as a dependency?
+- Consistency: is advanced usage repeated, or isolated to one file/example?
+
+CROSS-REPOSITORY EVIDENCE
+When multiple repositories exist:
+1. Consider all relevant evidence; do not rely on the first repository.
+2. Do not average repository levels.
+3. One strong repository does not automatically prove Expert if remaining evidence is weak.
+4. One weak repository does not automatically lower the level if strong repeated evidence exists elsewhere.
+5. Evaluate consistency and repetition.
+6. For contributor analysis, only use attributable evidence.
+Cross-repository evaluation assesses the overall pattern, not a mathematical average.
+
+CONTRIBUTOR SCOPE
+Evaluate: "What did this contributor actually do?"
+- Do not raise proficiency based on another contributor's code, repository architecture the contributor did not establish or contribute to, team activity, or repository-wide statistics not attributable to the contributor.
+- Advanced repository architecture does not automatically make every contributor Expert.
+- Contributor attribution takes priority over repository-wide evidence.
+
+CONFIDENCE
+Confidence = "How strong is the available evidence for the specific skill + level claim?"
+- NOT the probability the developer possesses the skill; NOT the proficiency level; NOT a proficiency percentage.
+- Example: FastAPI — Level: Advanced, Confidence: 0.85 means the evidence strongly supports the claim that the contributor's FastAPI usage is Advanced.
+- Low confidence: sparse evidence; limited direct evidence; shallow usage; insufficient architectural/static evidence; mostly indirect evidence.
+- Medium confidence: multiple evidence sources; technology actually used; clear implementation; some technical/architectural evidence; evidence does not cover the full picture.
+- High confidence: multiple independent evidence sources; repeated actual usage; static analysis supports implementation-quality claims; graph/architectural evidence supports architecture claims; sources agree; evidence directly supports the selected level.
+
+LEVEL AND CONFIDENCE ARE DIFFERENT
+Level and confidence are independent dimensions:
+- Advanced + 0.60: evidence supports Advanced but evidence strength is limited.
+- Intermediate + 0.95: evidence strongly supports Intermediate but does not justify Advanced.
+- High confidence does NOT mean high proficiency; high proficiency does NOT necessarily mean high confidence.
+- Confidence measures support for the selected claim, not how high the claim is.
+
+NO FIXED FORMULA
+- Never use: confidence = 0.5 + ...; level = average(metrics); Graph score > X → Advanced; commit count > X → Expert.
+- Do not invent arbitrary numerical thresholds. Numbers/statistics can be evidence but must not independently determine proficiency.
+
+EVIDENCE STRENGTH PRIORITY
+Generally prioritize evidence showing actual usage, approximately:
+1. Direct implementation + relevant static analysis + relevant architectural evidence
+2. Repeated real usage + implementation evidence
+3. Architectural / Graph evidence
+4. General repository activity
+5. Dependency / technology detection only
+Detection alone proves technology presence, not proficiency. Interpret evidence in context rather than scoring it mechanically.
+
+FINAL DECISION RULE — for every skill:
+1. Is the skill/technology present?
+2. Is there actual usage?
+3. What is the usage depth?
+4. What is implementation quality?
+5. What does architectural evidence show?
+6. Is evidence repeated and mutually consistent?
+7. Is the evidence attributable to the contributor?
+8. What is the highest level clearly supported?
+9. How strong is the evidence for that exact level?
+10. Return proficiency + confidence consistent with the evidence.
+GOLDEN RULE: choose the highest level clearly supported by the evidence, not the highest level that could be imagined. If evidence is insufficient: do not raise the level, do not invent evidence, do not treat missing evidence as negative evidence, and choose the lower supported level when two levels are plausible.
+"""
+
+
 def _build_system_prompt(role: str) -> str:
     role_instruction = (
         "The profile is being generated by a repository owner reviewing a "
@@ -277,6 +421,11 @@ For each skill:
 - Use proficiency beginner, intermediate, or advanced.
 - Explain the concrete evidence and list material limitations.
 - Do not treat repository-wide activity as contributor authorship.
+
+Level & Confidence Guidelines (authoritative for proficiency and
+confidence decisions — follow every rule and decision boundary):
+
+{LEVEL_CONFIDENCE_GUIDELINES}
 
 Flag contradictions or suspicious authorship as fraud signals. Do not
 include provider/model/version metadata; the service adds trusted audit

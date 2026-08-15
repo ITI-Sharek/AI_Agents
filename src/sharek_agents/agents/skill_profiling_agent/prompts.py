@@ -182,3 +182,151 @@ Output rules:
   return {"skills": []} — do not fabricate skills or metrics.
 - Never include chain-of-thought; output only the final profile JSON.
 """
+
+# Compact Level & Confidence rubric for the final profiling decision.
+#
+# This is the code-embedded, token-reduced form of the full Level &
+# Confidence guidelines. It is deliberately NOT part of SYSTEM_PROMPT:
+# it is appended to the LLM context only together with the evidence
+# package (the context of the final profiling decision), so normal
+# ReAct/tool-selection iterations never receive the full guidelines and
+# the base system prompt stays lean. Every decision rule of the
+# guidelines is preserved here; no numeric formula replaces judgment.
+LEVEL_CONFIDENCE_RUBRIC = """LEVEL & CONFIDENCE DECISION RULES — apply these rules when you select
+each skill's level and confidence from the evidence above.
+
+Core invariants:
+- Detection proves only that the technology is present; it never proves
+  proficiency.
+- Decide the level from the COMPLETE available evidence, never from a
+  single indicator.
+- A higher level requires clear supporting evidence; when the evidence
+  cannot distinguish two levels, choose the LOWER supported level.
+- Never assume experience the evidence does not show; absence of
+  evidence about an aspect is not evidence the contributor lacks it.
+- Tool failure or unavailable analysis is never negative evidence.
+- Judge the quality of actual usage, not the presence of a dependency
+  or configuration.
+- Consider ALL repositories together; never judge from the first
+  repository alone and never average levels numerically.
+- Never raise a contributor's level because of other people's work or
+  repository-wide activity that cannot be attributed to the
+  contributor.
+- Level and confidence must be consistent with the cited evidence.
+
+Beginner (basic or limited usage):
+- Basic or default technology usage, simple implementations, limited
+  error/edge-case handling, shallow/boilerplate patterns, weak
+  architectural evidence, or insufficient evidence of deeper
+  proficiency. Detection alone never justifies a level above Beginner.
+
+Intermediate (practical and stable usage beyond the basics):
+- Repeated real usage, multiple relevant capabilities, real
+  functionality, organized implementation, reasonable error handling,
+  consistency, reasonable separation of concerns, acceptable coupling,
+  useful but not necessarily sophisticated abstractions.
+- Real implementation alone is NOT enough for Advanced.
+
+Advanced (strong understanding; organized, maintainable, scalable
+solutions):
+- Requires MULTIPLE compatible evidence dimensions: meaningful
+  technology depth, non-trivial implementation, good error/edge-case
+  handling, maintainability, sound engineering decisions, useful
+  abstractions, clear boundaries, logical dependency direction,
+  controlled coupling, good cohesion, no impactful circular
+  dependencies, useful abstraction/reuse, architectural consistency.
+- One good implementation, one advanced framework feature, one strong
+  pattern, one excellent module, or one Graphify metric is NOT enough.
+
+Expert (repeated, multi-dimensional evidence of deep expertise):
+- Evidence across multiple dimensions, preferably repeated across
+  substantial work/repositories: deep technology usage, advanced
+  capabilities used appropriately, complex real-world cases, strong
+  scalable implementations, systematic error/edge-case handling,
+  repeated engineering decisions, strong architectural boundaries,
+  clear dependency direction, low coupling / high cohesion, intentional
+  abstractions, meaningful reuse, architectural consistency across
+  substantial parts of the system.
+- NOT for: one advanced feature, one excellent module, one pattern, one
+  excellent metric, or one complex implementation.
+
+Graphify (evidence, NOT a score):
+- Never use "graph score > X -> Advanced" or "circular dependencies = 0
+  -> Expert". No single Graphify metric determines the level.
+- Interpret it through: boundaries/separation of concerns, dependency
+  direction, coupling, cohesion, circular dependencies, abstraction and
+  reuse, architectural consistency; then combine those observations
+  with implementation and technology evidence.
+
+Implementation evidence:
+- Judge engineering quality, not code size: complexity (justified and
+  controlled), error handling, edge cases, maintainability, consistency,
+  deliberate engineering decisions. Larger code is NOT higher skill.
+
+Testing:
+- Testing is not a general level criterion. An excellent test suite
+  does not make a non-testing skill (e.g. FastAPI, React, Django)
+  Advanced or Expert.
+- Only for testing-related skills (Testing, Test Automation, QA
+  Engineering, Testing Frameworks) is testing direct evidence:
+  coverage, test design, fixtures, mocks, parametrization, test
+  organization, edge-case testing, maintainability.
+- For other skills testing may only support implementation quality; it
+  never independently raises the level.
+
+Technology/framework depth:
+- Dependency presence is not proficiency. Breadth: repeated usage
+  across relevant project areas/repositories. Depth: basic vs advanced
+  capabilities, framework-specific patterns, custom configuration,
+  meaningful integrations. Practical usage: technology actually used in
+  implementation. Consistency: advanced usage supported by repeated
+  evidence, not one isolated example.
+
+Cross-repository evidence:
+- Use evidence from all repositories; never only the first repository;
+  never average levels numerically; one strong repository does not
+  automatically prove Expert; one weak repository does not invalidate
+  repeated strong evidence elsewhere; weigh repetition, consistency and
+  depth across repositories. Contributor analysis uses only evidence
+  attributable to the contributor.
+
+Contributor scope:
+- Never raise a contributor's level because of another contributor's
+  code, team-wide activity, or repository-wide architecture/statistics
+  the contributor did not build. The claim reflects only what the
+  contributor actually demonstrated.
+
+Confidence (how strongly the available evidence supports the specific
+skill + level claim):
+- NOT the probability the developer has the skill, NOT the skill level,
+  NOT a percentage derived from metrics.
+- "Advanced + 0.60" is valid when Advanced is supported but evidence is
+  incomplete. "Intermediate + 0.95" is valid when evidence strongly
+  supports Intermediate but is insufficient for Advanced. High
+  confidence does not mean high level; high level does not necessarily
+  mean high confidence.
+- Low: little or shallow evidence, mostly indirect evidence, important
+  analysis missing. Medium: multiple useful evidence sources, real
+  implementation, some architectural/technical evidence, incomplete
+  overall picture. High: multiple independent evidence sources,
+  repeated real usage, implementation evidence, relevant static
+  analysis, relevant Graphify evidence, consistent with the selected
+  level. No fixed formula.
+
+Evidence strength (approximate priority):
+1. Direct implementation + relevant static analysis + relevant
+   architecture evidence
+2. Repeated real usage + implementation evidence
+3. Architectural / Graphify evidence
+4. General repository activity
+5. Dependency / detection evidence only (presence, not proficiency)
+
+Final decision (per skill):
+Technology present? -> actual usage demonstrated? -> usage depth? ->
+implementation quality? -> architecture evidence? -> repeated /
+consistent evidence? -> contributor-attributable evidence? -> choose the
+HIGHEST level clearly supported by the evidence (never the highest that
+could be imagined) -> set confidence for that exact claim.
+When evidence is insufficient: choose the lower supported level and
+never invent evidence to fill the gap.
+"""

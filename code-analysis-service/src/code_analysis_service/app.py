@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Literal
 
 from fastapi import Depends, FastAPI
 from pydantic import BaseModel
 
 from .adapters import get_adapter
+from .container_sandbox import stale_cleanup_loop
 from .graphify_runner import run_graphify
 from .models import AnalysisResult, GraphRelationsEvidence, StaticAnalysisEvidence
 from .orchestrator import analyze_repo as _analyze_repo_orchestrated
@@ -30,7 +32,26 @@ class AnalyzeGraphRequest(BaseModel):
     repo_path: str
 
 
-app = FastAPI(title="Code Analysis API")
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Run the stale analysis-container sweep for the app's lifetime.
+
+    Containers and networks left behind by a crashed host process (with a
+    possibly still-present PAT askpass) are force-removed once their lease
+    expires — see ``stale_cleanup_loop``.
+    """
+    cleanup_task = asyncio.create_task(stale_cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Code Analysis API", lifespan=lifespan)
 
 
 @app.get("/health")

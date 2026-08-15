@@ -101,7 +101,10 @@ from sharek_agents.agents.skill_profiling_agent.llm import get_skill_profiling_l
 from sharek_agents.agents.skill_profiling_agent.mcp_client import (
     MCP_PIPELINE_MAX_SECONDS,
 )
-from sharek_agents.agents.skill_profiling_agent.prompts import SYSTEM_PROMPT
+from sharek_agents.agents.skill_profiling_agent.prompts import (
+    LEVEL_CONFIDENCE_RUBRIC,
+    SYSTEM_PROMPT,
+)
 from sharek_agents.agents.skill_profiling_agent.schemas import (
     SkillProfileAgentResponse,
     ToolActivity,
@@ -301,15 +304,22 @@ class SkillProfilingAgent:
         invocation, so the invocation that produces the final profile
         receives one explicit, deterministic evidence package. The
         previous package message (if any) is replaced, never
-        duplicated. Returns the index of the appended message, or
-        ``None`` when nothing is stored for the mode.
+        duplicated. The compact Level & Confidence rubric rides with
+        the package as its own message — it is the decision context of
+        the profiling step (and is absent while no evidence exists), it
+        is never part of the base system prompt, and it is not attached
+        to tool observations. Returns the index of the last appended
+        message (the rubric), or ``None`` when nothing is stored for
+        the mode.
         """
         if previous_index is not None:
             messages.pop(previous_index)
+            messages.pop(previous_index - 1)
         content = evidence_context_message(context, analysis_mode)
         if content is None:
             return None
         messages.append(HumanMessage(content=content))
+        messages.append(HumanMessage(content=LEVEL_CONFIDENCE_RUBRIC))
         return len(messages) - 1
 
     @staticmethod

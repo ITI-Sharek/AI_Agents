@@ -24,9 +24,11 @@ def _parse_clippy_output(output: str, file_paths: list[str]) -> list[AnalysisIss
             data = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if data.get("reason") != "compiler-message":
+        if data.get("reason") != "compiler-message" and data.get("$message_type") != "diagnostic":
             continue
         msg = data.get("message", {})
+        if not isinstance(msg, dict):
+            msg = data
         if msg.get("level") not in ("warning", "error"):
             continue
         spans = msg.get("spans", [])
@@ -64,7 +66,7 @@ def analyze_rust(
 
     try:
         result = subprocess.run(
-            ["clippy-driver", "--edition", "2021", "--message-format=json"] + abs_files,
+            ["clippy-driver", "--edition", "2021", "--error-format=json"] + abs_files,
             capture_output=True, text=True, timeout=timeout,
         )
     except FileNotFoundError:
@@ -76,7 +78,18 @@ def analyze_rust(
             status="error", language="rust", error_message=str(exc)
         )
 
-    issues = _parse_clippy_output(result.stdout, abs_files)
+    issues = _parse_clippy_output(result.stderr + "\n" + result.stdout, abs_files)
+
+    if result.returncode != 0 and not issues:
+        detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+        return StaticAnalysisEvidence(
+            status="error",
+            language="rust",
+            error_message=(
+                f"clippy-driver exited with {result.returncode} and produced no "
+                f"diagnostics: {detail[:500] or 'no output'}"
+            ),
+        )
 
     return StaticAnalysisEvidence(
         status="success",
