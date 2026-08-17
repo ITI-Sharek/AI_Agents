@@ -4,10 +4,35 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
-SkillLevel = Literal["beginner", "intermediate", "advanced"]
-SkillMatch = Literal["MATCHED", "NOT_MATCHED", "NOT_EVIDENCED"]
+# The authoritative level hierarchy is beginner < intermediate < advanced <
+# expert; rank order is owned by ``scoring._LEVEL_ORDER`` and level matching
+# is deterministic Python (``scoring.calculate_level_match``) — never the LLM.
+SkillLevel = Literal["beginner", "intermediate", "advanced", "expert"]
+# Semantic skill-match state, classified by the LLM and validated by Python:
+# ``MATCHED`` — the contributor explicitly has the required skill itself;
+# ``RELATED`` — the contributor has one or more meaningfully related/adjacent
+# declared skills (a related technology, framework, library, language, tool,
+# methodology, or adjacent capability), never reported as a direct match;
+# ``MISSING`` — no declared contributor skill is meaningfully related. Python
+# validates and defaults, but never overrides the LLM's classification.
+SkillMatch = Literal["MATCHED", "RELATED", "MISSING"]
+# Semantic evidence-match state, classified by the LLM and validated by
+# Python: ``MATCHED`` — the evidence directly proves usage/demonstration of
+# the required skill itself; ``RELATED`` — the evidence demonstrates a
+# related capability without directly proving the exact required skill;
+# ``MISSING`` — the evidence provides no meaningful support. The LLM never
+# emits scores or level information.
+EvidenceSupport = Literal["MATCHED", "RELATED", "MISSING"]
 ApproachRelevance = Literal["DIRECT", "PARTIAL", "NOT_MENTIONED", "UNCLEAR"]
+# Semantic approach-to-requirement relevance, classified by the LLM and
+# mapped to the response ``ApproachRelevance`` values by Python:
+# ``DIRECT`` — the Approach directly requires, explicitly targets, or clearly
+# describes work covered by the requirement; ``RELATED`` — the Approach does
+# not directly name or target the exact requirement, but the described work is
+# meaningfully related to it; ``NOT_RELEVANT`` — the described work has no
+# meaningful relationship to the requirement. Python validates references and
+# maps these verdicts to the existing response representation.
+ApproachRequirementRelevance = Literal["DIRECT", "RELATED", "NOT_RELEVANT"]
 LevelMatch = Literal["EXACT", "HIGHER", "LOWER", "MISSING"]
 ConfidenceLevel = Literal["high", "medium", "low"]
 
@@ -87,6 +112,17 @@ class AdvisoryFitInput(ContractModel):
     project: ProjectInfo
     project_requirements: list[SkillItem] = Field(min_length=1)
     contributor: ContributorInfo
+    # Requested natural-language output language (free-form language name,
+    # e.g. "arabic", "english", "spanish"; never an ISO code). Empty means
+    # the default behavior (English natural-language output). The value only
+    # controls the language of user-facing natural-language text; it never
+    # affects identifiers, enum values, levels, scoring, or business logic.
+    answer: str = Field(default="", max_length=100)
+
+    @field_validator("answer")
+    @classmethod
+    def clean_answer(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("project_requirements")
     @classmethod
@@ -108,12 +144,22 @@ class Assessment(ContractModel):
     contributor_level: str | None = None
     skill_match: SkillMatch
     level_match: LevelMatch
+    evidence_match: EvidenceSupport = "MISSING"
     approach_relevance: ApproachRelevance
     explanation: str
 
 
 class AdvisoryFitResult(ContractModel):
     fit_percentage: float = Field(ge=0.0, le=100.0)
+    # Descriptive response metadata, computed deterministically by Python from
+    # the per-requirement assessments: ``evaluated_skills`` is the number of
+    # requirements actually evaluated (selected as relevant to the described
+    # work — DIRECT or RELATED approach relevance, never NOT_MENTIONED), and
+    # ``matched_skills`` is the number of evaluated requirements whose
+    # ``skill_match`` is ``MATCHED`` (never RELATED or MISSING). These are
+    # metadata only — they never feed the fit percentage or any score.
+    matched_skills: int = Field(default=0, ge=0)
+    evaluated_skills: int = Field(default=0, ge=0)
     assessments: list[Assessment]
     summary: str
 
@@ -215,17 +261,48 @@ class EvidenceUnderstanding(ContractModel):
     )
 
 
-class ApproachAnalysis(ContractModel):
-    """Structured understanding of what the contributor intends to build.
+class ApproachRequirementRelation(ContractModel):
+    """LLM-classified relevance of one authoritative project requirement.
 
-    Produced by the ``understand_approach`` workflow node from the
-    Contributor Approach (``contributor.approach``) as the primary subject,
-    with the Contributor Evidence as supporting context only. It records the
-    intended work — features, capabilities, architecture, technologies, and
-    implementation plan, each with a confidence — and never project
-    requirements, selected requirements, contributor skills, fit scores,
+    Produced by the approach-analysis LLM call in ``understand_approach``.
+    ``requirement`` is the exact authoritative project requirement skill
+    identifier from the request; ``relevance`` is ``DIRECT`` / ``RELATED`` /
+    ``NOT_RELEVANT``. The LLM classifies the relationship only — it never
+    supplies levels, scores, or authoritative identifiers, and it must never
+    invent requirements. Python validates every reference against the
+    authoritative project requirements and fails closed.
+    """
+
+    requirement: str = Field(min_length=1, max_length=200)
+    relevance: ApproachRequirementRelevance
+    explanation: str = Field(default="", max_length=500)
+
+    @field_validator("requirement")
+    @classmethod
+    def requirement_not_empty(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("requirement must not be empty")
+        return stripped
+
+
+class ApproachAnalysis(ContractModel):
+    """Structured understanding of the work described by the Approach.
+
+    Produced by the ``understand_approach`` workflow node from the Approach
+    (``contributor.approach``) as the primary subject, with the Contributor
+    Evidence as supporting context only. The Approach is a free-text
+    description of the work / requested contribution / technical intent; it
+    may be written by the Project Owner, the Contributor, or another
+    authorized source, so it must never be assumed to be the contributor's
+    own technical plan. This records the described work — features,
+    capabilities, architecture, technologies, and implementation steps, each
+    with a confidence — and, in ``requirement_relations``, the semantic
+    relevance (``DIRECT`` / ``RELATED`` / ``NOT_RELEVANT``) of each
+    authoritative project requirement to the described work. It never
+    contains selected requirements, contributor skills, fit scores,
     recommendations, or roadmaps. Later nodes may consume this
-    representation; the current workflow does not depend on it.
+    representation.
     """
 
     summary: str = Field(default="", max_length=2000)
@@ -234,6 +311,9 @@ class ApproachAnalysis(ContractModel):
     intended_architecture: list[str] = Field(default_factory=list)
     intended_technologies: list[str] = Field(default_factory=list)
     implementation_plan: list[str] = Field(default_factory=list)
+    requirement_relations: list[ApproachRequirementRelation] = Field(
+        default_factory=list
+    )
     confidence: ConfidenceLevel = "low"
 
     @field_validator(
@@ -257,3 +337,86 @@ class ApproachAnalysis(ContractModel):
                 raise ValueError(f"duplicate approach item: '{item}'")
             seen.add(key)
         return cleaned
+
+
+class RequirementSkillRelation(ContractModel):
+    """LLM-classified semantic relation for one requirement skill.
+
+    Produced by the relation-classification LLM call in
+    ``match_skills_and_evidence``. ``requirement_skill`` is the exact
+    authoritative requirement skill identifier from the request;
+    ``relation`` is ``MATCHED`` / ``RELATED`` / ``MISSING``;
+    ``related_skills`` lists the exact declared contributor skill names that
+    support a ``RELATED`` classification. The LLM classifies the relationship
+    only — it never supplies levels, scores, or authoritative identifiers.
+    """
+
+    requirement_skill: str = Field(min_length=1, max_length=200)
+    relation: SkillMatch
+    related_skills: list[str] = Field(default_factory=list)
+    explanation: str = Field(default="", max_length=500)
+
+    @field_validator("requirement_skill")
+    @classmethod
+    def requirement_skill_not_empty(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("requirement_skill must not be empty")
+        return stripped
+
+    @field_validator("related_skills")
+    @classmethod
+    def clean_related_skills(cls, value: list[str]) -> list[str]:
+        cleaned = [item.strip() for item in value]
+        if any(not item for item in cleaned):
+            raise ValueError("related_skills must not be empty")
+        seen: set[str] = set()
+        for item in cleaned:
+            key = item.casefold()
+            if key in seen:
+                raise ValueError(f"duplicate related skill: '{item}'")
+            seen.add(key)
+        return cleaned
+
+
+class RequirementEvidenceRelation(EvidenceReferenced):
+    """LLM-classified semantic evidence relation for one requirement skill.
+
+    Produced by the relation-classification LLM call in
+    ``match_skills_and_evidence``. ``requirement_skill`` is the exact
+    authoritative requirement skill identifier; ``relation`` is ``MATCHED`` /
+    ``RELATED`` / ``MISSING``; ``evidence_indexes`` are 0-based indexes of
+    the evidence records that support the relation (range-checked
+    deterministically by the node). The LLM classifies the relationship only.
+    """
+
+    requirement_skill: str = Field(min_length=1, max_length=200)
+    relation: EvidenceSupport
+    explanation: str = Field(default="", max_length=500)
+
+    @field_validator("requirement_skill")
+    @classmethod
+    def requirement_skill_not_empty(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("requirement_skill must not be empty")
+        return stripped
+
+
+class RequirementRelationAnalysis(ContractModel):
+    """Bounded structured output of the relation-classification LLM call.
+
+    One record per relevant requirement per section; ``skill_relations``
+    classifies requirement ↔ declared-skill relationships and
+    ``evidence_relations`` classifies requirement ↔ evidence relationships.
+    Records are strictly validated by the workflow node (requirement
+    references, declared-skill references, evidence indexes, duplicates,
+    caps); requirements not covered by a record default to ``MISSING``.
+    """
+
+    skill_relations: list[RequirementSkillRelation] = Field(
+        default_factory=list
+    )
+    evidence_relations: list[RequirementEvidenceRelation] = Field(
+        default_factory=list
+    )

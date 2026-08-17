@@ -15,6 +15,20 @@ from sharek_agents.agents.document_understanding.schemas import (
     DocumentUnderstandingInput,
     DocumentUnderstandingResult,
 )
+from sharek_agents.agents.gap_guidance.endpoint import (
+    analyze_gap_guidance,
+)
+from sharek_agents.agents.gap_guidance.schemas import (
+    GapGuidanceInput,
+    GapGuidanceResult,
+)
+from sharek_agents.agents.semantic_matching.endpoint import (
+    match_projects as semantic_matching_match,
+)
+from sharek_agents.agents.semantic_matching.schemas import (
+    SemanticMatchRequest,
+    SemanticMatchResponse,
+)
 from sharek_agents.agents.skill_profiling.contract_schemas import (
     SkillProfileInput,
     SkillProfileResult,
@@ -31,13 +45,6 @@ from sharek_agents.agents.skill_profiling_agent.endpoint import (
 )
 from sharek_agents.agents.skill_profiling_agent.schemas import (
     SkillProfileAgentResponse,
-)
-from sharek_agents.agents.semantic_matching.endpoint import (
-    match_projects as semantic_matching_match,
-)
-from sharek_agents.agents.semantic_matching.schemas import (
-    SemanticMatchRequest,
-    SemanticMatchResponse,
 )
 from sharek_agents.common.logging import get_logger
 from sharek_agents.security import require_service_token
@@ -126,6 +133,19 @@ async def document_understanding_endpoint(body: DocumentUnderstandingInput):
 )
 async def advisory_fit_endpoint(body: AdvisoryFitInput):
     return await analyze_advisory_fit(body)
+
+
+@app.post(
+    "/gap-guidance/generate",
+    response_model=GapGuidanceResult,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        503: {"description": "Service authentication is not configured"},
+    },
+)
+async def gap_guidance_endpoint(body: GapGuidanceInput):
+    return await analyze_gap_guidance(body)
 
 
 @app.post(

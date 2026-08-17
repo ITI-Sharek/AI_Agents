@@ -50,20 +50,60 @@ INITIAL_SCHEMA = MIGRATIONS_DIR / "001_initial_schema.sql"
 EMBEDDING_DIMENSIONS = 2048
 
 
-def _migration_statements() -> list[str]:
-    """Split the migration file into individual executable statements.
+def _migration_files() -> list[Path]:
+    """Discover the numbered migration files (``NNN_*.sql``) in order."""
+    files = [path for path in MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql")]
+    return sorted(files, key=lambda path: int(path.name.split("_", 1)[0]))
+
+
+def _split_sql_statements(text: str) -> list[str]:
+    """Split SQL text into individual executable statements.
+
+    Semicolons inside dollar-quoted bodies (``DO $$ ... $$;``) are ignored
+    so such blocks are kept intact and execute as one statement.
+    """
+    statements: list[str] = []
+    current: list[str] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        if text.startswith("$$", index):
+            end = text.find("$$", index + 2)
+            if end == -1:
+                current.append(text[index:])
+                index = length
+            else:
+                current.append(text[index : end + 2])
+                index = end + 2
+            continue
+        if text[index] == ";":
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement + ";")
+            current = []
+        else:
+            current.append(text[index])
+        index += 1
+    statement = "".join(current).strip()
+    if statement:
+        statements.append(statement + ";")
+    return statements
+
+
+def migration_statements() -> list[str]:
+    """Split every discovered migration file into executable statements.
 
     ``--`` comment text is removed first so semicolons inside comments
-    (e.g. ``-- ... source of truth; this ...``) cannot split a statement.
+    (e.g. ``-- ... source of truth; this ...``) cannot split a statement,
+    and dollar-quoted bodies are kept intact (see ``_split_sql_statements``).
     """
-    text = "\n".join(
-        line.split("--", 1)[0] for line in INITIAL_SCHEMA.read_text(encoding="utf-8").splitlines()
-    )
     statements: list[str] = []
-    for raw in text.split(";"):
-        statement = raw.strip()
-        if statement:
-            statements.append(statement + ";")
+    for migration in _migration_files():
+        text = "\n".join(
+            line.split("--", 1)[0]
+            for line in migration.read_text(encoding="utf-8").splitlines()
+        )
+        statements.extend(_split_sql_statements(text))
     return statements
 
 
@@ -167,7 +207,7 @@ class PostgresSemanticMatchingStore:
 
     async def initialize(self) -> None:
         connection = await self._connection()
-        for statement in _migration_statements():
+        for statement in migration_statements():
             await connection.execute(statement)
 
     async def upsert_project(self, record: ProjectMatchRecord) -> ProjectMatchRecord:

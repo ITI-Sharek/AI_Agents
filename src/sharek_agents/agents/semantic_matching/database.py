@@ -70,6 +70,19 @@ class _AsyncpgVectorAdapter:
     async def fetch(self, query: str, *args: Any) -> list[Any]:
         return await self._pool.fetch(query, *args)
 
+    async def acquire(self) -> Any:
+        """Acquire a dedicated pooled connection (session-scoped work).
+
+        Used by the roadmap store for PostgreSQL advisory locks that must
+        span multiple statements (e.g. serializing roadmap reprocessing);
+        the connection is returned with :meth:`release`.
+        """
+        return await self._pool.acquire()
+
+    async def release(self, connection: Any) -> None:
+        """Return a dedicated pooled connection to the pool."""
+        await self._pool.release(connection)
+
 
 def create_connection_provider(
     database_url: str,

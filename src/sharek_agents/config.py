@@ -173,6 +173,60 @@ class Settings:
         default_factory=lambda: os.environ.get("DOC_UNDERSTANDING_EMBEDDING_BASE_URL", "")
     )
 
+    # Gap Guidance Agent - dedicated LLM configuration. The Gap Guidance
+    # Agent resolves its provider, model, API key, and base URL only from
+    # these settings (see ``gap_guidance/llm.py``). When they are unset,
+    # the agent falls back to the shared OpenRouter configuration
+    # (``common.llm.get_llm``), preserving the previous behavior.
+    gap_guidance_llm_provider: str = field(
+        default_factory=lambda: os.environ.get("GAP_GUIDANCE_LLM_PROVIDER", "")
+    )
+    gap_guidance_llm_model: str = field(
+        default_factory=lambda: os.environ.get("GAP_GUIDANCE_LLM_MODEL", "")
+    )
+    gap_guidance_llm_api_key: str = field(
+        default_factory=lambda: os.environ.get("GAP_GUIDANCE_LLM_API_KEY", "")
+    )
+    gap_guidance_llm_base_url: str = field(
+        default_factory=lambda: os.environ.get("GAP_GUIDANCE_LLM_BASE_URL", "")
+    )
+
+    # Roadmap RAG - dedicated embedding configuration. Roadmap RAG resolves
+    # its embedding provider, model, API key, and base URL only from these
+    # settings (see ``roadmap_rag/embeddings.py``). When they are unset, it
+    # falls back to the existing Semantic Matching embedding configuration
+    # (``semantic_matching/llm.py``), preserving the previous behavior.
+    roadmap_rag_embedding_provider: str = field(
+        default_factory=lambda: os.environ.get("ROADMAP_RAG_EMBEDDING_PROVIDER", "")
+    )
+    roadmap_rag_embedding_model: str = field(
+        default_factory=lambda: os.environ.get("ROADMAP_RAG_EMBEDDING_MODEL", "")
+    )
+    roadmap_rag_embedding_api_key: str = field(
+        default_factory=lambda: os.environ.get("ROADMAP_RAG_EMBEDDING_API_KEY", "")
+    )
+    roadmap_rag_embedding_base_url: str = field(
+        default_factory=lambda: os.environ.get("ROADMAP_RAG_EMBEDDING_BASE_URL", "")
+    )
+
+    # Advisory Fit - dedicated LLM configuration. The Advisory Fit agent
+    # resolves its provider, model, API key, and base URL only from these
+    # settings (see ``advisory_fit/llm.py``). When they are unset, it falls
+    # back to the shared OpenRouter configuration (``common.llm.get_llm``),
+    # preserving the previous behavior.
+    advisory_fit_llm_provider: str = field(
+        default_factory=lambda: os.environ.get("ADVISORY_FIT_LLM_PROVIDER", "")
+    )
+    advisory_fit_llm_model: str = field(
+        default_factory=lambda: os.environ.get("ADVISORY_FIT_LLM_MODEL", "")
+    )
+    advisory_fit_llm_api_key: str = field(
+        default_factory=lambda: os.environ.get("ADVISORY_FIT_LLM_API_KEY", "")
+    )
+    advisory_fit_llm_base_url: str = field(
+        default_factory=lambda: os.environ.get("ADVISORY_FIT_LLM_BASE_URL", "")
+    )
+
     # Semantic Matching - independent matching index (PostgreSQL + pgvector)
     semantic_matching_database_url: str = field(
         default_factory=lambda: os.environ.get("SEMANTIC_MATCHING_DATABASE_URL", "")
