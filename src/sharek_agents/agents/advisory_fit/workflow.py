@@ -97,7 +97,9 @@ async def _structured_extraction_llm(
     if extra_vars:
         variables.update(extra_vars)
 
-    structured = get_advisory_fit_llm().with_structured_output(schema)
+    structured = get_advisory_fit_llm().with_structured_output(
+        schema, method="function_calling"
+    )
     result = await asyncio.wait_for(
         (prompt | structured).ainvoke(variables),
         timeout=settings.ai_skill_profile_timeout_seconds,

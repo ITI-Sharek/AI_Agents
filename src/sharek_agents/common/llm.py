@@ -29,7 +29,7 @@ def _alibaba_llm(model: str) -> BaseChatModel:
         "/compatible-mode/v1"
     ):
         raise LLMConfigurationError(
-            "ALIBABA_BASE_URL must be an HTTPS OpenAI-compatible base URL"
+            "ALIBABA_BASE_URL must be an HTTPS OpenAI-compatible base URL (ending in /compatible-mode/v1)"
         )
     return ChatOpenAI(
         model=model,
@@ -48,7 +48,6 @@ def _openrouter_llm(model: str) -> BaseChatModel:
     return ChatOpenRouter(
         model=model,
         api_key=api_key,
-        # Preserve the existing OpenRouter client timeout convention.
         timeout=int(settings.ai_skill_profile_timeout_seconds * 1000),
         temperature=0.0,
     )
@@ -73,8 +72,8 @@ def get_llm(model: str | None = None) -> BaseChatModel:
             used when omitted.
 
     Returns:
-        A LangChain chat model configured for Alibaba Model Studio or the
-        existing OpenRouter provider.
+        A LangChain chat model configured for Alibaba Model Studio, OpenRouter,
+        or Groq.
     """
     provider = settings.ai_provider.strip().lower()
     resolved_model = _required(
@@ -112,18 +111,22 @@ def get_llm(model: str | None = None) -> BaseChatModel:
 def get_doc_understanding_llm() -> ChatOpenAI:
     """Get a cached LLM instance for the Documentation Understanding Agent.
 
-    Reads provider, model, base URL, and API key from the
-    ``doc_understanding_llm_*`` settings, keeping the ReAct Agent
-    provider-configurable.
+    Reads provider, model, base URL, and API key from settings.
 
     Returns:
-        A ChatOpenAI instance configured for the Documentation Understanding
-        provider (e.g. Moonshot AI).
+        A ChatOpenAI instance configured for the Documentation Understanding provider.
     """
     provider = settings.doc_understanding_llm_provider
     model = settings.doc_understanding_llm_model
     base_url = settings.doc_understanding_llm_base_url
     api_key = settings.doc_understanding_llm_api_key
+
+    # Fallback to Alibaba settings if provider is alibaba
+    if provider == "alibaba":
+        base_url = base_url if base_url != "https://api.moonshot.ai/v1" else settings.alibaba_base_url
+        api_key = api_key or settings.alibaba_api_key
+        if model == "kimi-k3" or not model:
+            model = "qwen-plus"
 
     cache_key = f"{provider}:{model}:{base_url}"
     if cache_key not in _doc_understanding_cache:

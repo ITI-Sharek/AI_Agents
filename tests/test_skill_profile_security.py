@@ -150,8 +150,10 @@ def test_backend_repository_evidence_survives_enricher_unavailability() -> None:
 
 
 def test_empty_repository_evidence_is_rejected() -> None:
-    repository = make_repository()
+    repository = make_repository(contributed=False)
+    repository.primary_language = None
     repository.languages = {}
+    repository.topics = []
     repository.technologies = []
     repository.readme_excerpt = None
 

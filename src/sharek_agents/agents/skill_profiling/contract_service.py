@@ -543,7 +543,9 @@ async def _invoke_model(
             ("human", "Analyze these evidence capsules:\n\n{evidence}"),
         ]
     )
-    structured = get_llm().with_structured_output(ModelSkillProfileAnalysis)
+    structured = get_llm().with_structured_output(
+        ModelSkillProfileAnalysis, method="function_calling"
+    )
     result = await (prompt | structured).ainvoke({"evidence": evidence})
     return ModelSkillProfileAnalysis.model_validate(result)
 
@@ -596,20 +598,10 @@ def _merge_fraud_signals(
 
 
 def _check_no_analyzable_evidence(request: SkillProfileInput) -> bool:
-    """Return True only when every repository has no usable evidence.
-
-    The NestJS backend already submits trusted repository metadata. Framework
-    detection and deep analysis enrich that capsule, but transient GitHub or
-    analysis-service failures must not discard languages and technologies that
-    were collected upstream.
-
-    Runs after Step 1 and Step 2 have populated their optional evidence."""
+    """Guardrail: if Step 1, Step 2, and repository metadata produced
+    entirely empty evidence for EVERY repository, return True to fail-fast.
+    """
     for capsule in request.selected_repositories:
-        has_backend_evidence = bool(
-            capsule.languages
-            or capsule.technologies
-            or capsule.readme_excerpt
-        )
         has_frameworks = (
             capsule.framework_detection is not None
             and bool(capsule.framework_detection.frameworks_detected)
@@ -622,7 +614,22 @@ def _check_no_analyzable_evidence(request: SkillProfileInput) -> bool:
             capsule.graph_relations is not None
             and capsule.graph_relations.status == "success"
         )
-        if has_backend_evidence or has_frameworks or has_static or has_graph:
+        has_languages = bool(capsule.languages) or bool(capsule.primary_language)
+        has_tech = bool(capsule.technologies) or bool(capsule.topics)
+        has_readme = bool(capsule.readme_excerpt and capsule.readme_excerpt.strip())
+        has_commits = bool(
+            capsule.authorship and capsule.authorship.contribution_detected
+        )
+
+        if (
+            has_frameworks
+            or has_static
+            or has_graph
+            or has_languages
+            or has_tech
+            or has_readme
+            or has_commits
+        ):
             return False
     return True
 
@@ -778,7 +785,7 @@ async def generate_skill_profile(request: SkillProfileInput) -> SkillProfileResu
             evidence_quality="weak",
             recommendation="needs_more_evidence",
             provider=settings.ai_provider,
-            model=settings.active_chat_model,
+            model=settings.default_model,
             prompt_version=PROMPT_VERSION,
             schema_version=SCHEMA_VERSION,
             service_version=settings.service_version,
@@ -863,7 +870,7 @@ async def generate_skill_profile(request: SkillProfileInput) -> SkillProfileResu
             evidence_quality=evidence_quality,
             recommendation="pending_review",
             provider=settings.ai_provider,
-            model=settings.active_chat_model,
+            model=settings.default_model,
             prompt_version=PROMPT_VERSION,
             schema_version=SCHEMA_VERSION,
             service_version=settings.service_version,

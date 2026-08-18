@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import json
 import re
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 from collections.abc import Callable
 
 _SIMPLE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")

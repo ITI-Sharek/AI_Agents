@@ -38,11 +38,11 @@ class Settings:
         default_factory=lambda: os.environ.get("ALIBABA_API_KEY", "")
     )
     alibaba_base_url: str = field(
-        default_factory=lambda: os.environ.get("ALIBABA_BASE_URL", "")
+        default_factory=lambda: os.environ.get("ALIBABA_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
     )
     alibaba_model: str = field(
         default_factory=lambda: os.environ.get(
-            "ALIBABA_MODEL", "qwen3.7-plus"
+            "ALIBABA_MODEL", "qwen2.5-coder-32b-instruct"
         )
     )
     alibaba_enable_thinking: bool = field(
@@ -52,11 +52,11 @@ class Settings:
         == "true"
     )
     default_model: str = field(
-        default_factory=lambda: _env("DEFAULT_MODEL", "LLM_MODEL")
+        default_factory=lambda: _env("DEFAULT_MODEL", "LLM_MODEL", "qwen2.5-coder-32b-instruct")
     )
     ai_provider: str = field(
         default_factory=lambda: _env(
-            "AI_PROVIDER", "LLM_PROVIDER", "openrouter"
+            "AI_PROVIDER", "LLM_PROVIDER", "alibaba"
         ).lower()
     )
     ai_service_auth_token: str = field(

@@ -53,7 +53,9 @@ async def run(repo_identifier: str, evidence: dict | None = None) -> AgentRespon
         structured = (
             None
             if os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER).lower() == "groq"
-            else get_llm().with_structured_output(SkillProfilingResult)
+            else get_llm().with_structured_output(
+                SkillProfilingResult, method="function_calling"
+            )
         )
         result = await _invoke_llm(prompt, structured, evidence_json)
         return AgentResponse(
