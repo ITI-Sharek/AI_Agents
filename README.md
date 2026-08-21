@@ -23,6 +23,18 @@ export AI_SERVICE_AUTH_TOKEN="a-long-random-internal-token"
 PYTHONPATH=src uvicorn sharek_agents.main:app --reload --port 8010
 ```
 
+For the temporary local material-analysis compatibility path, enable it before
+starting FastAPI:
+
+```bash
+export MATERIAL_ANALYSIS_DEV_MODE=true
+```
+
+It accepts the NestJS `material-draft-v1` request with `contentBase64`, parses
+Markdown, DOCX, text, and text-based PDF materials locally, and returns the
+NestJS material-suggestion response shape. This adapter is disabled by default
+and is not a production material-analysis contract.
+
 Configure the NestJS backend with the same `AI_SERVICE_AUTH_TOKEN` and with
 `AI_SERVICE_URL=http://localhost:8010`.
 

@@ -1,10 +1,13 @@
-"""Provider-selectable LLM instance management with safe caching."""
+from typing import TypeVar
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_openrouter import ChatOpenRouter
 
 from sharek_agents.config import settings
+
+T = TypeVar("T")
 
 _cache: dict[tuple[str, str, str], BaseChatModel] = {}
 
@@ -140,6 +143,32 @@ def get_doc_understanding_llm() -> ChatOpenAI:
             temperature=0.0,
         )
     return _doc_understanding_cache[cache_key]
+
+
+def get_provider_metadata() -> tuple[str, str]:
+    """Return the active provider name and model name."""
+    return settings.ai_provider, settings.active_chat_model
+
+
+async def generate_structured(
+    system_prompt: str,
+    user_prompt: str,
+    response_model: type[T],
+) -> T:
+    """Invoke the active LLM with structured output."""
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            ("human", "{prompt}"),
+        ]
+    )
+    structured = get_llm().with_structured_output(
+        response_model, method="function_calling"
+    )
+    result = await (prompt | structured).ainvoke({"prompt": user_prompt})
+    if isinstance(result, response_model):
+        return result
+    return response_model.model_validate(result)
 
 
 def clear_cache() -> None:

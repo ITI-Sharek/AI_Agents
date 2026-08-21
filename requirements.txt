@@ -1,5 +1,6 @@
 -e .
 fastapi
+mcp>=1.28.1
 graphifyy
 httpx
 uvicorn

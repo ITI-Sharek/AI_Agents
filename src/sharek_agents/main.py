@@ -15,12 +15,25 @@ from sharek_agents.agents.document_understanding.schemas import (
     DocumentUnderstandingInput,
     DocumentUnderstandingResult,
 )
+from sharek_agents.agents.material_analysis_dev import (
+    MaterialAnalysisInput,
+    MaterialAnalysisResult,
+    analyze_materials_dev_endpoint,
+)
 from sharek_agents.agents.gap_guidance.endpoint import (
     analyze_gap_guidance,
 )
 from sharek_agents.agents.gap_guidance.schemas import (
     GapGuidanceInput,
     GapGuidanceResult,
+)
+from sharek_agents.agents.skill_gap_guidance.endpoint import (
+    analyze_skill_gap_guidance,
+    stream_skill_gap_guidance,
+)
+from sharek_agents.agents.skill_gap_guidance.schemas import (
+    SkillGapGuidanceInput,
+    SkillGapGuidanceResult,
 )
 from sharek_agents.agents.semantic_matching.endpoint import (
     match_projects as semantic_matching_match,
@@ -106,6 +119,22 @@ async def generate_skill_profile_agent_endpoint_route(body: SkillProfileInput):
 
 
 @app.post(
+    "/material-analysis/analyze",
+    response_model=MaterialAnalysisResult,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        404: {"description": "Development material analysis is disabled"},
+        422: {"description": "Selected material content could not be parsed"},
+        502: {"description": "Development material analysis provider error"},
+        503: {"description": "Service authentication is not configured"},
+    },
+)
+async def material_analysis_endpoint(body: MaterialAnalysisInput):
+    return await analyze_materials_dev_endpoint(body)
+
+
+@app.post(
     "/document-understanding/analyze",
     response_model=DocumentUnderstandingResult,
     dependencies=[Depends(require_service_token)],
@@ -137,15 +166,46 @@ async def advisory_fit_endpoint(body: AdvisoryFitInput):
 
 @app.post(
     "/gap-guidance/generate",
-    response_model=GapGuidanceResult,
+    response_model=SkillGapGuidanceResult,
     dependencies=[Depends(require_service_token)],
     responses={
         401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Skill-gap guidance provider returned an invalid response"},
         503: {"description": "Service authentication is not configured"},
+        504: {"description": "Skill-gap guidance provider timed out"},
     },
 )
-async def gap_guidance_endpoint(body: GapGuidanceInput):
-    return await analyze_gap_guidance(body)
+async def gap_guidance_endpoint(body: SkillGapGuidanceInput):
+    return await analyze_skill_gap_guidance(body)
+
+
+@app.post(
+    "/skill-gap-guidance/generate",
+    response_model=SkillGapGuidanceResult,
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Skill-gap guidance provider returned an invalid response"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Skill-gap guidance provider timed out"},
+    },
+)
+async def skill_gap_guidance_endpoint(body: SkillGapGuidanceInput):
+    return await analyze_skill_gap_guidance(body)
+
+
+@app.post(
+    "/skill-gap-guidance/stream",
+    dependencies=[Depends(require_service_token)],
+    responses={
+        401: {"description": "Missing or invalid service bearer token"},
+        502: {"description": "Skill-gap guidance provider returned an invalid response"},
+        503: {"description": "Service authentication is not configured"},
+        504: {"description": "Skill-gap guidance provider timed out"},
+    },
+)
+async def skill_gap_guidance_stream_endpoint(body: SkillGapGuidanceInput):
+    return await stream_skill_gap_guidance(body)
 
 
 @app.post(

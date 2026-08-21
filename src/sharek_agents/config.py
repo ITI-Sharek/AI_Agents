@@ -67,6 +67,11 @@ class Settings:
             os.environ.get("AI_SKILL_PROFILE_TIMEOUT_SECONDS", "60")
         )
     )
+    ai_skill_gap_guidance_timeout_seconds: float = field(
+        default_factory=lambda: float(
+            os.environ.get("AI_SKILL_GAP_GUIDANCE_TIMEOUT_SECONDS", "75")
+        )
+    )
     service_version: str = field(
         default_factory=lambda: os.environ.get("AI_SERVICE_VERSION", "0.1.0")
     )
@@ -96,6 +101,21 @@ class Settings:
     )
     analysis_service_timeout: int = field(
         default_factory=lambda: int(os.environ.get("ANALYSIS_SERVICE_TIMEOUT", "190"))
+    )
+
+    # Temporary compatibility path for the NestJS material-analysis contract.
+    # It accepts selected material bytes from the backend and must remain
+    # explicitly enabled in development only.
+    material_analysis_dev_mode: bool = field(
+        default_factory=lambda: os.environ.get(
+            "MATERIAL_ANALYSIS_DEV_MODE", "false"
+        ).lower()
+        == "true"
+    )
+    material_analysis_dev_max_file_size_bytes: int = field(
+        default_factory=lambda: int(
+            os.environ.get("MATERIAL_ANALYSIS_DEV_MAX_FILE_SIZE_BYTES", str(10 * 1024 * 1024))
+        )
     )
 
     # Document Understanding Agent settings
